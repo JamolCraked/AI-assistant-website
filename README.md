@@ -20,10 +20,11 @@ This repository has been converted into a web game arcade called PlayHub.
 
 1. Open `index.html` in your browser.
 2. Pick a game from the hub or top navigation.
-3. Use the controls and buttons to play and reset games.
+3. Toggle between `Human` and `AI` mode if you want computer-driven gameplay.
+4. Use the `Reset Current Game` and `Return to Hub` buttons as needed.
 
 ## Notes
 
 - This is a static HTML/CSS/JavaScript arcade platform.
-- Select a game and the gameplay loads instantly in the same page.
-- You can extend each game with extra levels, sound effects, or score tracking.
+- Each game includes animated transitions and gameplay feedback.
+- AI mode enables automatic play where available, including Tic Tac Toe, Memory Match, Snake, Minesweeper, and Trivia Quiz.

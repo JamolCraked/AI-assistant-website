@@ -6,6 +6,9 @@ const navButtons = [...document.querySelectorAll('.nav-btn')];
 const hubPanel = document.getElementById('hubPanel');
 const resetGameButton = document.getElementById('resetGame');
 const returnHubButton = document.getElementById('returnHub');
+const modePanel = document.getElementById('modePanel');
+const humanModeButton = document.getElementById('humanMode');
+const aiModeButton = document.getElementById('aiMode');
 
 const games = {
   ticTacToe: {
@@ -25,7 +28,7 @@ const games = {
   snake: {
     title: 'Snake',
     subtitle: 'Classic arcade chase',
-    description: 'Use arrow keys to eat, grow, and avoid your tail.',
+    description: 'Use arrow keys or watch the AI snake chase the food.',
     init: initSnake,
     reset: resetSnake,
   },
@@ -39,14 +42,43 @@ const games = {
   trivia: {
     title: 'Trivia Quiz',
     subtitle: 'Rapid-fire knowledge',
-    description: 'Answer questions and earn points while you play.',
+    description: 'Answer questions and compete against the AI.',
     init: initTrivia,
     reset: resetTrivia,
   },
 };
 
 let currentGame = null;
+let currentMode = 'human';
 let snakeState = null;
+let ticState = null;
+let memoryState = null;
+let minesState = null;
+let triviaState = null;
+
+function updateStatus(text) {
+  gameStatus.textContent = text;
+}
+
+function createGrid(container, rows, cols) {
+  container.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+}
+
+function setGameMode(mode) {
+  if (mode === currentMode) return;
+  currentMode = mode;
+  humanModeButton.classList.toggle('active', mode === 'human');
+  aiModeButton.classList.toggle('active', mode === 'ai');
+  updateStatus(mode === 'ai' ? 'AI mode is active.' : 'Human mode is active.');
+  if (currentGame && currentGame !== 'hub' && games[currentGame] && games[currentGame].reset) {
+    games[currentGame].reset();
+  }
+}
+
+function bindModeButtons() {
+  humanModeButton.addEventListener('click', () => setGameMode('human'));
+  aiModeButton.addEventListener('click', () => setGameMode('ai'));
+}
 
 function bindNavigation() {
   navButtons.forEach((button) => {
@@ -73,18 +105,10 @@ function bindNavigation() {
   returnHubButton.addEventListener('click', () => {
     setActiveGame('hub');
   });
+
+  bindModeButtons();
 }
 
-function updateStatus(text) {
-  gameStatus.textContent = text;
-}
-
-function createGrid(container, rows, cols) {
-  container.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-}
-
-// Tic Tac Toe
-let ticState = null;
 function initTicTacToe() {
   ticState = { board: Array(9).fill(null), turn: 'X', finished: false };
   gameContainer.innerHTML = `
@@ -102,10 +126,12 @@ function initTicTacToe() {
     cell.addEventListener('click', () => chooseTicCell(i, cell));
     board.appendChild(cell);
   }
+  updateStatus(currentMode === 'ai' ? 'Your turn as X. AI will play O.' : 'Tap a square to place X or O.');
 }
 
 function chooseTicCell(index, cell) {
   if (ticState.finished || ticState.board[index]) return;
+  if (currentMode === 'ai' && ticState.turn === 'O') return;
   ticState.board[index] = ticState.turn;
   cell.textContent = ticState.turn;
   const winner = getTicWinner(ticState.board);
@@ -121,7 +147,56 @@ function chooseTicCell(index, cell) {
   }
   ticState.turn = ticState.turn === 'X' ? 'O' : 'X';
   document.getElementById('ticNext').textContent = ticState.turn;
+  if (currentMode === 'ai' && ticState.turn === 'O') {
+    updateStatus('AI is choosing a move...');
+    setTimeout(aiTicMove, 700);
+    return;
+  }
   updateStatus(`Move: ${ticState.turn}`);
+}
+
+function aiTicMove() {
+  if (ticState.finished) return;
+  const aiMark = 'O';
+  const humanMark = 'X';
+  const winMove = findBestTicMove(aiMark);
+  const blockMove = findBestTicMove(humanMark);
+  const emptyIndices = ticState.board.map((value, index) => (value === null ? index : null)).filter((value) => value !== null);
+  const index = winMove ?? blockMove ?? emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+  const cell = document.querySelector(`.cell[data-index="${index}"]`);
+  if (!cell) return;
+  ticState.board[index] = aiMark;
+  cell.textContent = aiMark;
+  const winner = getTicWinner(ticState.board);
+  if (winner) {
+    ticState.finished = true;
+    updateStatus(`${winner} wins!`);
+    return;
+  }
+  if (!ticState.board.includes(null)) {
+    ticState.finished = true;
+    updateStatus('Tie game. Try again.');
+    return;
+  }
+  ticState.turn = 'X';
+  document.getElementById('ticNext').textContent = 'X';
+  updateStatus('Your turn.');
+}
+
+function findBestTicMove(player) {
+  const combos = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+    [0, 4, 8], [2, 4, 6],
+  ];
+  for (const [a, b, c] of combos) {
+    const line = [ticState.board[a], ticState.board[b], ticState.board[c]];
+    if (line.filter((mark) => mark === player).length === 2) {
+      const emptyIndex = [a, b, c].find((idx) => ticState.board[idx] === null);
+      if (emptyIndex !== undefined) return emptyIndex;
+    }
+  }
+  return null;
 }
 
 function getTicWinner(board) {
@@ -142,12 +217,9 @@ function resetTicTacToe() {
   if (currentGame === 'ticTacToe') initTicTacToe();
 }
 
-// Memory Match
-let memoryState = null;
-const icons = ['🔥', '❄️', '🌟', '⚡', '🍀', '🎯', '🧩', '🚀'];
 function initMemoryMatch() {
   const deck = shuffle([...icons, ...icons]);
-  memoryState = { deck, flipped: [], matched: [], moves: 0 };
+  memoryState = { deck, flipped: [], matched: [], moves: 0, turn: 'human', aiSeen: {} };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Flip cards and match pairs. Tap two cards each turn.</div>
     <div class="grid-board" id="memoryBoard"></div>
@@ -160,65 +232,116 @@ function initMemoryMatch() {
     const card = document.createElement('button');
     card.className = 'card';
     card.dataset.index = index;
-    card.addEventListener('click', () => flipMemoryCard(index, card));
+    card.addEventListener('click', () => flipMemoryCard(index, card, 'human'));
     board.appendChild(card);
   });
+  updateStatus(currentMode === 'ai' ? 'Your turn to flip. AI will follow.' : 'Your turn to flip cards.');
 }
 
-function flipMemoryCard(index, element) {
+function flipMemoryCard(index, element, actor = 'human') {
   if (memoryState.flipped.includes(index) || memoryState.matched.includes(index) || memoryState.flipped.length === 2) return;
+  if (currentMode === 'ai' && memoryState.turn !== actor) return;
   memoryState.flipped.push(index);
   element.classList.add('revealed');
   element.textContent = memoryState.deck[index];
+  noteMemorySeen(memoryState.deck[index], index);
+
   if (memoryState.flipped.length === 2) {
     memoryState.moves += 1;
     document.getElementById('memoryMoves').textContent = memoryState.moves;
     const [first, second] = memoryState.flipped;
     if (memoryState.deck[first] === memoryState.deck[second]) {
       memoryState.matched.push(first, second);
+      removeMemorySeen(memoryState.deck[first], first);
+      removeMemorySeen(memoryState.deck[second], second);
       memoryState.flipped = [];
       if (memoryState.matched.length === memoryState.deck.length) {
         updateStatus('All matched! Nice work.');
+        return;
       }
-    } else {
-      updateStatus('Not a match. Try again.');
-      setTimeout(() => {
-        memoryState.flipped.forEach((idx) => {
-          const card = document.querySelector(`.card[data-index="${idx}"]`);
-          if (card) {
-            card.classList.remove('revealed');
-            card.textContent = '';
-          }
-        });
-        memoryState.flipped = [];
-        updateStatus('Flip the next pair.');
-      }, 950);
+      if (currentMode === 'ai' && actor === 'human') {
+        memoryState.turn = 'ai';
+        setTimeout(playMemoryAiTurn, 900);
+        return;
+      }
+      updateStatus(actor === 'human' ? 'Good match! Your turn again.' : 'AI found a match! Your turn.');
+      if (currentMode === 'ai') memoryState.turn = 'human';
+      return;
     }
+
+    updateStatus('Not a match.');
+    setTimeout(() => {
+      memoryState.flipped.forEach((idx) => {
+        const card = document.querySelector(`.card[data-index="${idx}"]`);
+        if (card) {
+          card.classList.remove('revealed');
+          card.textContent = '';
+        }
+      });
+      memoryState.flipped = [];
+      if (currentMode === 'ai') {
+        memoryState.turn = actor === 'human' ? 'ai' : 'human';
+        if (memoryState.turn === 'ai') {
+          updateStatus('AI is selecting cards...');
+          setTimeout(playMemoryAiTurn, 900);
+        } else {
+          updateStatus('Your turn.');
+        }
+      } else {
+        updateStatus('Try the next pair.');
+      }
+    }, 950);
   }
+}
+
+function noteMemorySeen(icon, index) {
+  if (!memoryState.aiSeen[icon]) memoryState.aiSeen[icon] = [];
+  if (!memoryState.aiSeen[icon].includes(index)) memoryState.aiSeen[icon].push(index);
+}
+
+function removeMemorySeen(icon, index) {
+  if (!memoryState.aiSeen[icon]) return;
+  memoryState.aiSeen[icon] = memoryState.aiSeen[icon].filter((i) => i !== index);
+}
+
+function playMemoryAiTurn() {
+  if (currentMode !== 'ai' || memoryState.turn !== 'ai' || memoryState.matched.length === memoryState.deck.length) return;
+  const pair = getMemoryAIPair();
+  const available = memoryState.deck.map((_, idx) => idx).filter((idx) => !memoryState.matched.includes(idx));
+  let firstIndex = pair ? pair[0] : available[Math.floor(Math.random() * available.length)];
+  let secondIndex = pair ? pair[1] : null;
+  const remaining = available.filter((idx) => idx !== firstIndex);
+  if (secondIndex === null) secondIndex = remaining[Math.floor(Math.random() * remaining.length)];
+  const firstCard = document.querySelector(`.card[data-index="${firstIndex}"]`);
+  const secondCard = document.querySelector(`.card[data-index="${secondIndex}"]`);
+  if (firstCard) flipMemoryCard(firstIndex, firstCard, 'ai');
+  setTimeout(() => {
+    if (secondCard) flipMemoryCard(secondIndex, secondCard, 'ai');
+  }, 700);
+}
+
+function getMemoryAIPair() {
+  for (const [icon, indexes] of Object.entries(memoryState.aiSeen)) {
+    const unmatched = indexes.filter((idx) => !memoryState.matched.includes(idx));
+    if (unmatched.length >= 2) return unmatched.slice(0, 2);
+  }
+  return null;
 }
 
 function resetMemoryMatch() {
   if (currentGame === 'memory') initMemoryMatch();
 }
 
-function shuffle(array) {
-  return array
-    .map((value) => ({ value, sort: Math.random() }))
-    .sort((a, b) => a.sort - b.sort)
-    .map(({ value }) => value);
-}
-
-// Snake
 function initSnake() {
   snakeState = {
     direction: 'right',
     snake: [{ x: 2, y: 2 }],
     food: { x: 5, y: 5 },
     speed: 120,
-    size: 12,
     width: 12,
     height: 12,
     running: true,
+    loop: null,
   };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Use arrow keys to move. Eat food and grow without hitting the wall.</div>
@@ -230,10 +353,11 @@ function initSnake() {
   drawSnake(ctx);
   document.addEventListener('keydown', handleSnakeInput);
   snakeState.loop = setInterval(() => updateSnake(ctx), snakeState.speed);
+  updateStatus(currentMode === 'ai' ? 'AI snake is playing. Watch the chase.' : 'Control the snake with arrow keys.');
 }
 
 function handleSnakeInput(event) {
-  if (currentGame !== 'snake') return;
+  if (currentGame !== 'snake' || currentMode === 'ai') return;
   const directions = {
     ArrowUp: 'up',
     ArrowDown: 'down',
@@ -252,6 +376,9 @@ function handleSnakeInput(event) {
 
 function updateSnake(ctx) {
   if (!snakeState.running) return;
+  if (currentMode === 'ai') {
+    snakeState.direction = getSnakeAIDirection();
+  }
   const head = { ...snakeState.snake[0] };
   if (snakeState.direction === 'up') head.y -= 1;
   if (snakeState.direction === 'down') head.y += 1;
@@ -273,6 +400,35 @@ function updateSnake(ctx) {
 
   document.getElementById('snakeScore').textContent = snakeState.snake.length;
   drawSnake(ctx);
+}
+
+function getSnakeAIDirection() {
+  const head = snakeState.snake[0];
+  const target = snakeState.food;
+  const directions = ['up', 'down', 'left', 'right'];
+  const safeMoves = directions.filter((dir) => {
+    const next = { x: head.x, y: head.y };
+    if (dir === 'up') next.y -= 1;
+    if (dir === 'down') next.y += 1;
+    if (dir === 'left') next.x -= 1;
+    if (dir === 'right') next.x += 1;
+    return next.x >= 0 && next.y >= 0 && next.x < snakeState.width && next.y < snakeState.height && !snakeState.snake.some((segment) => segment.x === next.x && segment.y === next.y);
+  });
+  if (!safeMoves.length) return snakeState.direction;
+  safeMoves.sort((a, b) => {
+    const aPos = { x: head.x, y: head.y };
+    const bPos = { x: head.x, y: head.y };
+    if (a === 'up') aPos.y -= 1;
+    if (a === 'down') aPos.y += 1;
+    if (a === 'left') aPos.x -= 1;
+    if (a === 'right') aPos.x += 1;
+    if (b === 'up') bPos.y -= 1;
+    if (b === 'down') bPos.y += 1;
+    if (b === 'left') bPos.x -= 1;
+    if (b === 'right') bPos.x += 1;
+    return (Math.abs(aPos.x - target.x) + Math.abs(aPos.y - target.y)) - (Math.abs(bPos.x - target.x) + Math.abs(bPos.y - target.y));
+  });
+  return safeMoves[0];
 }
 
 function drawSnake(ctx) {
@@ -303,22 +459,19 @@ function resetSnake() {
   initSnake();
 }
 
-// Minesweeper
-let minesState = null;
 function initMinesweeper() {
   const rows = 6;
   const cols = 6;
   const mineCount = 8;
-  const board = Array(rows).fill(null).map(() => Array(cols).fill({}));
-  const cells = [];
-  while (cells.length < mineCount) {
+  const grid = Array(rows).fill(null).map(() => Array(cols).fill(0));
+  const mines = [];
+  while (mines.length < mineCount) {
     const row = Math.floor(Math.random() * rows);
     const col = Math.floor(Math.random() * cols);
     const key = `${row}-${col}`;
-    if (!cells.includes(key)) cells.push(key);
+    if (!mines.includes(key)) mines.push(key);
   }
-  const grid = Array(rows).fill(null).map(() => Array(cols).fill(0));
-  cells.forEach((key) => {
+  mines.forEach((key) => {
     const [r, c] = key.split('-').map(Number);
     grid[r][c] = 'M';
   });
@@ -340,7 +493,14 @@ function initMinesweeper() {
     }
   }
 
-  minesState = { rows, cols, grid, revealed: Array(rows).fill(null).map(() => Array(cols).fill(false)), finished: false };
+  minesState = {
+    rows,
+    cols,
+    grid,
+    revealed: Array(rows).fill(null).map(() => Array(cols).fill(false)),
+    finished: false,
+    aiLoop: null,
+  };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Reveal all safe tiles without triggering a mine.</div>
     <div class="grid-board" id="minesBoard"></div>
@@ -357,6 +517,42 @@ function initMinesweeper() {
       boardEl.appendChild(cell);
     }
   }
+
+  if (currentMode === 'ai') {
+    startMinesAI();
+    updateStatus('AI is solving the board...');
+  } else {
+    updateStatus('Click a tile to reveal it.');
+  }
+}
+
+function startMinesAI() {
+  if (!minesState) return;
+  stopMinesAI();
+  minesState.aiLoop = setInterval(() => {
+    if (minesState.finished) {
+      stopMinesAI();
+      return;
+    }
+    const options = [];
+    document.querySelectorAll('.minesweeper-cell').forEach((cell) => {
+      const [r, c] = cell.dataset.position.split('-').map(Number);
+      if (!minesState.revealed[r][c]) options.push({ cell, r, c });
+    });
+    if (!options.length) {
+      stopMinesAI();
+      return;
+    }
+    const choice = options[Math.floor(Math.random() * options.length)];
+    revealMineCell(choice.r, choice.c, choice.cell);
+  }, 900);
+}
+
+function stopMinesAI() {
+  if (minesState && minesState.aiLoop) {
+    clearInterval(minesState.aiLoop);
+    minesState.aiLoop = null;
+  }
 }
 
 function revealMineCell(row, col, cell) {
@@ -369,6 +565,7 @@ function revealMineCell(row, col, cell) {
     minesState.finished = true;
     updateStatus('Boom! You hit a mine. Restart to try again.');
     revealAllMines();
+    stopMinesAI();
     return;
   }
   cell.textContent = value === 0 ? '' : value;
@@ -403,6 +600,7 @@ function checkMinesClear() {
   if (revealedCount === safeCells && !minesState.finished) {
     minesState.finished = true;
     updateStatus('Victory! You cleared the board.');
+    stopMinesAI();
   }
 }
 
@@ -410,8 +608,6 @@ function resetMinesweeper() {
   if (currentGame === 'minesweeper') initMinesweeper();
 }
 
-// Trivia Quiz
-let triviaState = null;
 const triviaQuestions = [
   {
     question: 'Which planet is known as the Red Planet?',
@@ -441,19 +637,19 @@ const triviaQuestions = [
 ];
 
 function initTrivia() {
-  triviaState = { index: 0, score: 0 };
+  triviaState = { index: 0, humanScore: 0, aiScore: 0 };
   loadTriviaQuestion();
 }
 
 function loadTriviaQuestion() {
   const question = triviaQuestions[triviaState.index];
   gameContainer.innerHTML = `
-    <div class="game-info status-bar">Choose the correct answer to score points.</div>
+    <div class="game-info status-bar">Choose the correct answer to score points and beat the AI.</div>
     <div class="trivia-card">
       <h3>${question.question}</h3>
       <div class="trivia-options"></div>
     </div>
-    <div class="score-panel"><span>Score: <strong id="triviaScore">${triviaState.score}</strong></span></div>
+    <div class="score-panel"><span>You: <strong id="triviaScoreHuman">${triviaState.humanScore}</strong></span><span>AI: <strong id="triviaScoreAI">${triviaState.aiScore}</strong></span></div>
   `;
   const optionsEl = gameContainer.querySelector('.trivia-options');
   question.options.forEach((option) => {
@@ -463,21 +659,32 @@ function loadTriviaQuestion() {
     button.addEventListener('click', () => selectTriviaOption(option, button));
     optionsEl.appendChild(button);
   });
+  updateStatus(currentMode === 'ai' ? 'Select your answer. AI is guessing too.' : 'Select your answer to score.');
 }
 
 function selectTriviaOption(option, button) {
   const question = triviaQuestions[triviaState.index];
   const correct = option === question.answer;
   if (correct) {
-    triviaState.score += 1;
+    triviaState.humanScore += 1;
     button.classList.add('correct');
-    updateStatus('Correct! Nice answer.');
+    updateStatus('Correct! You scored a point.');
   } else {
     button.classList.add('wrong');
-    updateStatus(`Wrong answer. The correct answer was ${question.answer}.`);
+    updateStatus(`Incorrect. The right answer was ${question.answer}.`);
   }
-  document.getElementById('triviaScore').textContent = triviaState.score;
+  document.getElementById('triviaScoreHuman').textContent = triviaState.humanScore;
   Array.from(document.querySelectorAll('.option-btn')).forEach((btn) => btn.disabled = true);
+
+  const aiAnswer = currentMode === 'ai' ? aiChooseTrivia(question) : question.options[Math.floor(Math.random() * question.options.length)];
+  if (aiAnswer === question.answer) {
+    triviaState.aiScore += 1;
+    updateStatus((correct ? '' : 'AI also got it right. ') + 'AI scored a point.');
+  } else {
+    updateStatus((correct ? '' : 'AI missed it too. ') + `AI chose ${aiAnswer}.`);
+  }
+  document.getElementById('triviaScoreAI').textContent = triviaState.aiScore;
+
   setTimeout(() => {
     triviaState.index += 1;
     if (triviaState.index >= triviaQuestions.length) {
@@ -485,14 +692,23 @@ function selectTriviaOption(option, button) {
     } else {
       loadTriviaQuestion();
     }
-  }, 900);
+  }, 1100);
+}
+
+function aiChooseTrivia(question) {
+  const knowCorrect = Math.random() < 0.72;
+  if (knowCorrect) return question.answer;
+  const wrongOptions = question.options.filter((option) => option !== question.answer);
+  return wrongOptions[Math.floor(Math.random() * wrongOptions.length)];
 }
 
 function showTriviaResults() {
+  const winner = triviaState.humanScore > triviaState.aiScore ? 'You win!' : triviaState.humanScore < triviaState.aiScore ? 'AI wins this round.' : 'It’s a tie!';
   gameContainer.innerHTML = `
     <div class="welcome-screen">
       <h3>Quiz Complete</h3>
-      <p>You scored <strong>${triviaState.score}</strong> out of ${triviaQuestions.length}.</p>
+      <p>You scored <strong>${triviaState.humanScore}</strong> and AI scored <strong>${triviaState.aiScore}</strong>.</p>
+      <p>${winner}</p>
       <p>Click restart to play again or choose a different game.</p>
     </div>
   `;
@@ -502,7 +718,6 @@ function resetTrivia() {
   if (currentGame === 'trivia') initTrivia();
 }
 
-// Helpers
 function setActiveNavButton(key) {
   navButtons.forEach((button) => button.classList.toggle('active', button.dataset.game === key));
 }
@@ -519,14 +734,19 @@ function clearGameArea() {
   if (currentGame === 'snake') {
     document.removeEventListener('keydown', handleSnakeInput);
   }
+  if (currentGame === 'minesweeper') {
+    stopMinesAI();
+  }
 }
 
 function setActiveGame(key) {
   clearGameArea();
   if (key === 'hub') {
     currentGame = 'hub';
+    modePanel.classList.add('hidden');
   } else {
     currentGame = key;
+    modePanel.classList.remove('hidden');
   }
   setActiveNavButton(key);
   hubPanel.classList.toggle('hidden', key !== 'hub');
@@ -550,8 +770,19 @@ function setActiveGame(key) {
   gameTitle.textContent = game.title;
   gameSubtitle.textContent = game.subtitle;
   gameStatus.textContent = game.description;
+  setGameMode(currentMode);
   game.init();
 }
 
 bindNavigation();
+setGameMode('human');
 setActiveGame('hub');
+
+function startKeepAlive() {
+  const keepAliveMs = 240000;
+  setInterval(() => {
+    fetch(window.location.href, { cache: 'no-store' }).catch(() => {});
+  }, keepAliveMs);
+}
+
+startKeepAlive();
