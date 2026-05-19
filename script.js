@@ -594,6 +594,7 @@ function initFPS() {
     keys: { forward: false, back: false, left: false, right: false },
     frameRequest: null,
     lastTime: null,
+    time: 0,
     hits: 0,
     totalTargets: targets.length,
     targets,
@@ -716,6 +717,7 @@ function animateFPS(timestamp, ctx) {
   if (!fpsState.lastTime) fpsState.lastTime = timestamp;
   const delta = (timestamp - fpsState.lastTime) / 1000;
   fpsState.lastTime = timestamp;
+  fpsState.time += delta;
   updateFPSPlayer(delta);
   drawFPS(ctx);
   fpsState.frameRequest = requestAnimationFrame((ts) => animateFPS(ts, ctx));
@@ -740,14 +742,23 @@ function updateFPSPlayer(delta) {
 function drawFPS(ctx) {
   const { width, height } = ctx.canvas;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#192140';
+
+  const skyGradient = ctx.createLinearGradient(0, 0, 0, height * 0.5);
+  skyGradient.addColorStop(0, '#0b1b3a');
+  skyGradient.addColorStop(1, '#12264a');
+  ctx.fillStyle = skyGradient;
   ctx.fillRect(0, 0, width, height * 0.5);
-  ctx.fillStyle = '#1e273c';
+
+  const floorGradient = ctx.createLinearGradient(0, height * 0.5, 0, height);
+  floorGradient.addColorStop(0, '#111b2f');
+  floorGradient.addColorStop(1, '#0c1723');
+  ctx.fillStyle = floorGradient;
   ctx.fillRect(0, height * 0.5, width, height * 0.5);
 
-  const horizon = height * 0.5;
+  const bobOffset = Math.sin(fpsState.time * 2.7) * 10;
+  const horizon = height * 0.5 + bobOffset * 0.08;
   const halfFov = fpsState.fov / 2;
-  const rayCount = 120;
+  const rayCount = 140;
   const projectionPlane = width / 2 / Math.tan(halfFov);
   const distances = [];
 
@@ -760,7 +771,7 @@ function drawFPS(ctx) {
     const eyeY = Math.sin(rayAngle);
 
     while (!hitWall && distanceToWall < fpsState.maxDepth) {
-      distanceToWall += 0.05;
+      distanceToWall += 0.04;
       const testX = Math.floor(fpsState.player.x + eyeX * distanceToWall);
       const testY = Math.floor(fpsState.player.y + eyeY * distanceToWall);
       if (testX < 0 || testX >= fpsState.width || testY < 0 || testY >= fpsState.height) {
@@ -779,19 +790,37 @@ function drawFPS(ctx) {
           }
         }
         corners.sort((a, b) => b.dot - a.dot);
-        if (Math.acos(corners[0].dot) < 0.1) boundary = true;
+        if (Math.acos(corners[0].dot) < 0.12) boundary = true;
       }
     }
 
-    const ceiling = Math.floor((horizon - projectionPlane / distanceToWall));
+    const ceiling = Math.floor(horizon - projectionPlane / distanceToWall);
     const floor = height - ceiling;
     const shade = distanceToWall <= fpsState.maxDepth ? 1 - Math.min(1, distanceToWall / fpsState.maxDepth) : 0;
-    const wallShade = boundary ? '#ffffff' : `rgba(${80 + shade * 120}, ${80 + shade * 120}, ${140 + shade * 115}, 1)`;
+    const wallShade = boundary ? '#ffffff' : `rgba(${Math.floor(30 + shade * 90)}, ${Math.floor(80 + shade * 130)}, ${Math.floor(140 + shade * 90)}, 1)`;
     const wallWidth = width / rayCount + 1;
 
     ctx.fillStyle = wallShade;
     ctx.fillRect(ray * wallWidth, ceiling, wallWidth, floor - ceiling);
+    if (!boundary) {
+      const stripeAlpha = 0.18 + shade * 0.3;
+      ctx.fillStyle = `rgba(255,255,255,${stripeAlpha})`;
+      if ((ray + Math.floor(distanceToWall * 5)) % 8 < 2) {
+        ctx.fillRect(ray * wallWidth, ceiling, wallWidth, floor - ceiling);
+      }
+    }
     distances[ray] = distanceToWall;
+  }
+
+  const floorStripeSize = 18;
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < width; i += floorStripeSize) {
+    const offset = (i + fpsState.time * 60) % floorStripeSize;
+    ctx.beginPath();
+    ctx.moveTo(i + offset, height * 0.5);
+    ctx.lineTo(i + offset - width * 0.02, height);
+    ctx.stroke();
   }
 
   for (const target of fpsState.targets) {
@@ -804,29 +833,32 @@ function drawFPS(ctx) {
     while (diff < -Math.PI) diff += Math.PI * 2;
     while (diff > Math.PI) diff -= Math.PI * 2;
     if (Math.abs(diff) > halfFov) continue;
-    const size = Math.min(160, Math.max(14, 400 / distance));
+    const size = Math.min(170, Math.max(18, 420 / distance));
     const x = Math.tan(diff) * projectionPlane + width / 2 - size / 2;
     const top = horizon - size / 2;
     const bottom = horizon + size / 2;
     const rayIndex = Math.floor((diff + halfFov) / fpsState.fov * rayCount);
     if (rayIndex >= 0 && rayIndex < rayCount && distances[rayIndex] > distance) {
       const gradient = ctx.createLinearGradient(0, top, 0, bottom);
-      gradient.addColorStop(0, '#f4b400');
-      gradient.addColorStop(1, '#ff7a00');
+      gradient.addColorStop(0, '#ff4b4b');
+      gradient.addColorStop(1, '#ffbb00');
       ctx.fillStyle = gradient;
       ctx.fillRect(x, top, size, size);
-      ctx.strokeStyle = '#fff5';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffffcc';
+      ctx.lineWidth = 3;
       ctx.strokeRect(x, top, size, size);
+      ctx.fillStyle = '#ffffffcc';
+      ctx.font = 'bold 12px Inter, sans-serif';
+      ctx.fillText('TARGET', x + 6, bottom - 8);
     }
   }
 
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillRect(0, height - 64, width, 64);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(0, height - 74, width, 74);
   ctx.fillStyle = '#d0e6ff';
   ctx.font = '16px Inter, sans-serif';
-  ctx.fillText(`Position: ${fpsState.player.x.toFixed(1)}, ${fpsState.player.y.toFixed(1)}`, 16, height - 42);
-  ctx.fillText(`Angle: ${fpsState.player.angle.toFixed(2)}`, 16, height - 18);
+  ctx.fillText(`Position: ${fpsState.player.x.toFixed(1)}, ${fpsState.player.y.toFixed(1)}`, 16, height - 46);
+  ctx.fillText(`Angle: ${fpsState.player.angle.toFixed(2)}`, 16, height - 22);
 }
 
 function resetFPS() {
