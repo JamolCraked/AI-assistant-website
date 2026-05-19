@@ -34,6 +34,13 @@ const games = {
     init: initSnake,
     reset: resetSnake,
   },
+  fps: {
+    title: 'First Person Shooter',
+    subtitle: '3D first-person action',
+    description: 'Use W/S to move, A/D to turn, and space to shoot the targets.',
+    init: initFPS,
+    reset: resetFPS,
+  },
   minesweeper: {
     title: 'Minesweeper',
     subtitle: 'Safe tile logic',
@@ -54,6 +61,7 @@ let currentGame = null;
 let currentMode = 'human';
 let snakeState = null;
 let snakeAutoRestart = false;
+let fpsState = null;
 let ticState = null;
 let memoryState = null;
 let minesState = null;
@@ -557,6 +565,282 @@ function resetSnake() {
   initSnake();
 }
 
+function initFPS() {
+  const map = [
+    '##########',
+    '#   #    #',
+    '#   #  # #',
+    '#   #  # #',
+    '#   #    #',
+    '#        #',
+    '#  ##  ##',
+    '#   #    #',
+    '#        #',
+    '##########',
+  ];
+  const targets = [
+    { x: 7.3, y: 2.7, hit: false },
+    { x: 3.2, y: 6.5, hit: false },
+    { x: 6.8, y: 7.4, hit: false },
+    { x: 2.5, y: 3.8, hit: false },
+  ];
+  fpsState = {
+    player: { x: 5.2, y: 5.2, angle: 1.4, speed: 2.4, turnSpeed: 2.9, radius: 0.2 },
+    map,
+    width: map[0].length,
+    height: map.length,
+    fov: Math.PI / 3,
+    maxDepth: 16,
+    keys: { forward: false, back: false, left: false, right: false },
+    frameRequest: null,
+    lastTime: null,
+    hits: 0,
+    totalTargets: targets.length,
+    targets,
+    hitMessage: 'Ready to shoot.',
+    shooting: false,
+  };
+
+  gameContainer.innerHTML = `
+    <div class="fps-hud">
+      <canvas id="fpsCanvas" class="fps-canvas" width="820" height="460"></canvas>
+      <div class="fps-overlay">
+        <div class="crosshair">+</div>
+      </div>
+      <div class="fps-controls">
+        <span>Targets: <strong id="fpsTargets">0 / ${targets.length}</strong></span>
+        <span>Message: <strong id="fpsMessage">Ready to shoot.</strong></span>
+      </div>
+      <div class="fps-controls">
+        <span>Controls: W/S move, A/D turn, space shoot</span>
+        <span>Goal: Hit all targets</span>
+      </div>
+    </div>
+  `;
+
+  const canvas = document.getElementById('fpsCanvas');
+  const ctx = canvas.getContext('2d');
+  document.addEventListener('keydown', handleFPSKeyDown);
+  document.addEventListener('keyup', handleFPSKeyUp);
+  document.addEventListener('click', handleFPSClick);
+  fpsState.frameRequest = requestAnimationFrame((timestamp) => animateFPS(timestamp, ctx));
+  updateStatus(currentMode === 'ai' ? 'AI mode is enabled. Human controls are still visible.' : 'Use W/S to move, A/D to turn, and space to shoot.');
+}
+
+function handleFPSKeyDown(event) {
+  if (currentGame !== 'fps') return;
+  const key = event.key.toLowerCase();
+  if (key === 'w') fpsState.keys.forward = true;
+  if (key === 's') fpsState.keys.back = true;
+  if (key === 'a') fpsState.keys.left = true;
+  if (key === 'd') fpsState.keys.right = true;
+  if (key === ' ') {
+    event.preventDefault();
+    shootFPS();
+  }
+}
+
+function handleFPSKeyUp(event) {
+  if (currentGame !== 'fps') return;
+  const key = event.key.toLowerCase();
+  if (key === 'w') fpsState.keys.forward = false;
+  if (key === 's') fpsState.keys.back = false;
+  if (key === 'a') fpsState.keys.left = false;
+  if (key === 'd') fpsState.keys.right = false;
+}
+
+function handleFPSClick() {
+  if (currentGame !== 'fps') return;
+  shootFPS();
+}
+
+function shootFPS() {
+  if (!fpsState || fpsState.shooting) return;
+  fpsState.shooting = true;
+  const hitTarget = getFPSHitTarget();
+  if (hitTarget) {
+    hitTarget.hit = true;
+    fpsState.hits += 1;
+    fpsState.hitMessage = `Hit! ${fpsState.hits}/${fpsState.totalTargets}`;
+  } else {
+    fpsState.hitMessage = 'Missed. Try again.';
+  }
+  document.getElementById('fpsTargets').textContent = `${fpsState.hits} / ${fpsState.totalTargets}`;
+  document.getElementById('fpsMessage').textContent = fpsState.hitMessage;
+
+  if (fpsState.hits >= fpsState.totalTargets) {
+    fpsState.hitMessage = 'All targets down. You win!';
+    document.getElementById('fpsMessage').textContent = fpsState.hitMessage;
+  }
+
+  setTimeout(() => { fpsState.shooting = false; }, 180);
+}
+
+function getFPSHitTarget() {
+  const player = fpsState.player;
+  const rayAngle = player.angle;
+  let bestTarget = null;
+  let bestDistance = Infinity;
+  for (const target of fpsState.targets) {
+    if (target.hit) continue;
+    const dx = target.x - player.x;
+    const dy = target.y - player.y;
+    const angleToTarget = Math.atan2(dy, dx);
+    let diff = angleToTarget - rayAngle;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    const distance = Math.hypot(dx, dy);
+    if (Math.abs(diff) < 0.14 && distance < 12) {
+      if (hasLineOfSight(player.x, player.y, target.x, target.y) && distance < bestDistance) {
+        bestDistance = distance;
+        bestTarget = target;
+      }
+    }
+  }
+  return bestTarget;
+}
+
+function hasLineOfSight(x1, y1, x2, y2) {
+  const steps = 40;
+  const dx = (x2 - x1) / steps;
+  const dy = (y2 - y1) / steps;
+  for (let i = 1; i < steps; i += 1) {
+    const px = x1 + dx * i;
+    const py = y1 + dy * i;
+    if (fpsState.map[Math.floor(py)]?.[Math.floor(px)] === '#') return false;
+  }
+  return true;
+}
+
+function animateFPS(timestamp, ctx) {
+  if (!fpsState.lastTime) fpsState.lastTime = timestamp;
+  const delta = (timestamp - fpsState.lastTime) / 1000;
+  fpsState.lastTime = timestamp;
+  updateFPSPlayer(delta);
+  drawFPS(ctx);
+  fpsState.frameRequest = requestAnimationFrame((ts) => animateFPS(ts, ctx));
+}
+
+function updateFPSPlayer(delta) {
+  const player = fpsState.player;
+  const moveStep = player.speed * delta;
+  const turnStep = player.turnSpeed * delta;
+  if (fpsState.keys.left) player.angle -= turnStep;
+  if (fpsState.keys.right) player.angle += turnStep;
+  const moveX = Math.cos(player.angle) * (fpsState.keys.forward ? moveStep : fpsState.keys.back ? -moveStep : 0);
+  const moveY = Math.sin(player.angle) * (fpsState.keys.forward ? moveStep : fpsState.keys.back ? -moveStep : 0);
+  if (moveX !== 0 || moveY !== 0) {
+    const nextX = player.x + moveX;
+    const nextY = player.y + moveY;
+    if (fpsState.map[Math.floor(player.y)]?.[Math.floor(nextX)] !== '#') player.x = nextX;
+    if (fpsState.map[Math.floor(nextY)]?.[Math.floor(player.x)] !== '#') player.y = nextY;
+  }
+}
+
+function drawFPS(ctx) {
+  const { width, height } = ctx.canvas;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#192140';
+  ctx.fillRect(0, 0, width, height * 0.5);
+  ctx.fillStyle = '#1e273c';
+  ctx.fillRect(0, height * 0.5, width, height * 0.5);
+
+  const horizon = height * 0.5;
+  const halfFov = fpsState.fov / 2;
+  const rayCount = 120;
+  const projectionPlane = width / 2 / Math.tan(halfFov);
+  const distances = [];
+
+  for (let ray = 0; ray < rayCount; ray += 1) {
+    const rayAngle = fpsState.player.angle - halfFov + (ray / rayCount) * fpsState.fov;
+    let distanceToWall = 0;
+    let hitWall = false;
+    let boundary = false;
+    const eyeX = Math.cos(rayAngle);
+    const eyeY = Math.sin(rayAngle);
+
+    while (!hitWall && distanceToWall < fpsState.maxDepth) {
+      distanceToWall += 0.05;
+      const testX = Math.floor(fpsState.player.x + eyeX * distanceToWall);
+      const testY = Math.floor(fpsState.player.y + eyeY * distanceToWall);
+      if (testX < 0 || testX >= fpsState.width || testY < 0 || testY >= fpsState.height) {
+        hitWall = true;
+        distanceToWall = fpsState.maxDepth;
+      } else if (fpsState.map[testY][testX] === '#') {
+        hitWall = true;
+        const corners = [];
+        for (let tx = 0; tx < 2; tx += 1) {
+          for (let ty = 0; ty < 2; ty += 1) {
+            const vx = testX + tx - fpsState.player.x;
+            const vy = testY + ty - fpsState.player.y;
+            const d = Math.sqrt(vx * vx + vy * vy);
+            const dot = (eyeX * vx / d) + (eyeY * vy / d);
+            corners.push({ distance: d, dot });
+          }
+        }
+        corners.sort((a, b) => b.dot - a.dot);
+        if (Math.acos(corners[0].dot) < 0.1) boundary = true;
+      }
+    }
+
+    const ceiling = Math.floor((horizon - projectionPlane / distanceToWall));
+    const floor = height - ceiling;
+    const shade = distanceToWall <= fpsState.maxDepth ? 1 - Math.min(1, distanceToWall / fpsState.maxDepth) : 0;
+    const wallShade = boundary ? '#ffffff' : `rgba(${80 + shade * 120}, ${80 + shade * 120}, ${140 + shade * 115}, 1)`;
+    const wallWidth = width / rayCount + 1;
+
+    ctx.fillStyle = wallShade;
+    ctx.fillRect(ray * wallWidth, ceiling, wallWidth, floor - ceiling);
+    distances[ray] = distanceToWall;
+  }
+
+  for (const target of fpsState.targets) {
+    if (target.hit) continue;
+    const dx = target.x - fpsState.player.x;
+    const dy = target.y - fpsState.player.y;
+    const distance = Math.hypot(dx, dy);
+    const angleToTarget = Math.atan2(dy, dx);
+    let diff = angleToTarget - fpsState.player.angle;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    if (Math.abs(diff) > halfFov) continue;
+    const size = Math.min(160, Math.max(14, 400 / distance));
+    const x = Math.tan(diff) * projectionPlane + width / 2 - size / 2;
+    const top = horizon - size / 2;
+    const bottom = horizon + size / 2;
+    const rayIndex = Math.floor((diff + halfFov) / fpsState.fov * rayCount);
+    if (rayIndex >= 0 && rayIndex < rayCount && distances[rayIndex] > distance) {
+      const gradient = ctx.createLinearGradient(0, top, 0, bottom);
+      gradient.addColorStop(0, '#f4b400');
+      gradient.addColorStop(1, '#ff7a00');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, top, size, size);
+      ctx.strokeStyle = '#fff5';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, top, size, size);
+    }
+  }
+
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(0, height - 64, width, 64);
+  ctx.fillStyle = '#d0e6ff';
+  ctx.font = '16px Inter, sans-serif';
+  ctx.fillText(`Position: ${fpsState.player.x.toFixed(1)}, ${fpsState.player.y.toFixed(1)}`, 16, height - 42);
+  ctx.fillText(`Angle: ${fpsState.player.angle.toFixed(2)}`, 16, height - 18);
+}
+
+function resetFPS() {
+  if (currentGame !== 'fps') return;
+  if (fpsState.frameRequest) {
+    cancelAnimationFrame(fpsState.frameRequest);
+    fpsState.frameRequest = null;
+  }
+  document.removeEventListener('keydown', handleFPSKeyDown);
+  document.removeEventListener('keyup', handleFPSKeyUp);
+  document.removeEventListener('click', handleFPSClick);
+  initFPS();
+}
+
 function initMinesweeper() {
   const rows = 6;
   const cols = 6;
@@ -835,6 +1119,15 @@ function clearGameArea() {
       clearTimeout(snakeState.deathTimeout);
       snakeState.deathTimeout = null;
     }
+  }
+  if (currentGame === 'fps') {
+    if (fpsState && fpsState.frameRequest) {
+      cancelAnimationFrame(fpsState.frameRequest);
+      fpsState.frameRequest = null;
+    }
+    document.removeEventListener('keydown', handleFPSKeyDown);
+    document.removeEventListener('keyup', handleFPSKeyUp);
+    document.removeEventListener('click', handleFPSClick);
   }
   if (currentGame === 'minesweeper') {
     stopMinesAI();
