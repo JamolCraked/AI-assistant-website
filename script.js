@@ -9,6 +9,8 @@ const returnHubButton = document.getElementById('returnHub');
 const modePanel = document.getElementById('modePanel');
 const humanModeButton = document.getElementById('humanMode');
 const aiModeButton = document.getElementById('aiMode');
+const snakeSettingsPanel = document.getElementById('snakeSettingsPanel');
+const snakeAutoRestartCheckbox = document.getElementById('snakeAutoRestart');
 
 const games = {
   ticTacToe: {
@@ -51,6 +53,7 @@ const games = {
 let currentGame = null;
 let currentMode = 'human';
 let snakeState = null;
+let snakeAutoRestart = false;
 let ticState = null;
 let memoryState = null;
 let minesState = null;
@@ -78,6 +81,9 @@ function setGameMode(mode) {
 function bindModeButtons() {
   humanModeButton.addEventListener('click', () => setGameMode('human'));
   aiModeButton.addEventListener('click', () => setGameMode('ai'));
+  snakeAutoRestartCheckbox.addEventListener('change', () => {
+    snakeAutoRestart = snakeAutoRestartCheckbox.checked;
+  });
 }
 
 function bindNavigation() {
@@ -346,6 +352,7 @@ function initSnake() {
     accumulatedTime: 0,
     frameRequest: null,
     previousSnake: null,
+    deathTimeout: null,
   };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Use arrow keys to move. Eat food and grow without hitting the wall.</div>
@@ -367,6 +374,14 @@ function handleSnakeInput(event) {
     ArrowDown: 'down',
     ArrowLeft: 'left',
     ArrowRight: 'right',
+    w: 'up',
+    W: 'up',
+    s: 'down',
+    S: 'down',
+    a: 'left',
+    A: 'left',
+    d: 'right',
+    D: 'right',
   };
   const next = directions[event.key];
   if (!next) return;
@@ -417,7 +432,13 @@ function updateSnake(ctx) {
 
   if (head.x < 0 || head.y < 0 || head.x >= snakeState.width || head.y >= snakeState.height || snakeState.snake.some((segment) => segment.x === head.x && segment.y === head.y)) {
     snakeState.running = false;
-    updateStatus('Game over. Hit a wall or yourself.');
+    updateStatus('Game over. Restarting in a moment...');
+    if (snakeAutoRestart && !snakeState.deathTimeout) {
+      snakeState.deathTimeout = setTimeout(() => {
+        snakeState.deathTimeout = null;
+        if (currentGame === 'snake') resetSnake();
+      }, 900);
+    }
     return;
   }
 
@@ -467,29 +488,43 @@ function drawSnake(ctx, progress = 1) {
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
   const previous = snakeState.previousSnake || snakeState.snake;
+  ctx.save();
+  ctx.lineWidth = cellSize * 0.78;
+  ctx.strokeStyle = '#5b8df9';
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(79,141,255,0.4)';
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
   snakeState.snake.forEach((segment, index) => {
     const from = index === 0 ? previous[0] : previous[index - 1] || segment;
     const to = segment;
     const x = from.x + (to.x - from.x) * progress;
     const y = from.y + (to.y - from.y) * progress;
-    const radius = cellSize * (index === 0 ? 0.48 : 0.42);
-
-    ctx.save();
+    const cx = x * cellSize + cellSize / 2;
+    const cy = y * cellSize + cellSize / 2;
     if (index === 0) {
-      ctx.fillStyle = '#7de7ff';
-      ctx.shadowColor = 'rgba(125,231,255,0.9)';
-      ctx.shadowBlur = 18;
+      ctx.moveTo(cx, cy);
     } else {
-      const fade = 1 - index / snakeState.snake.length;
-      ctx.fillStyle = `rgba(93,141,249,${0.55 + fade * 0.45})`;
-      ctx.shadowColor = 'rgba(79,141,255,0.25)';
-      ctx.shadowBlur = 8;
+      ctx.lineTo(cx, cy);
     }
-    ctx.beginPath();
-    ctx.arc(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
   });
+  ctx.stroke();
+  ctx.restore();
+
+  const head = snakeState.snake[0];
+  const prevHead = previous[0] || head;
+  const headX = (prevHead.x + (head.x - prevHead.x) * progress) * cellSize + cellSize / 2;
+  const headY = (prevHead.y + (head.y - prevHead.y) * progress) * cellSize + cellSize / 2;
+
+  ctx.save();
+  ctx.fillStyle = '#7de7ff';
+  ctx.shadowColor = 'rgba(125,231,255,0.9)';
+  ctx.shadowBlur = 22;
+  ctx.beginPath();
+  ctx.arc(headX, headY, cellSize * 0.45, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 
   ctx.fillStyle = '#ffd166';
   ctx.shadowColor = 'rgba(255,209,102,0.6)';
@@ -510,6 +545,10 @@ function placeSnakeFood() {
 
 function resetSnake() {
   if (currentGame !== 'snake') return;
+  if (snakeState.deathTimeout) {
+    clearTimeout(snakeState.deathTimeout);
+    snakeState.deathTimeout = null;
+  }
   if (snakeState.frameRequest) {
     cancelAnimationFrame(snakeState.frameRequest);
     snakeState.frameRequest = null;
@@ -792,6 +831,10 @@ function clearGameArea() {
   stopSnakeLoop();
   if (currentGame === 'snake') {
     document.removeEventListener('keydown', handleSnakeInput);
+    if (snakeState && snakeState.deathTimeout) {
+      clearTimeout(snakeState.deathTimeout);
+      snakeState.deathTimeout = null;
+    }
   }
   if (currentGame === 'minesweeper') {
     stopMinesAI();
@@ -803,9 +846,11 @@ function setActiveGame(key) {
   if (key === 'hub') {
     currentGame = 'hub';
     modePanel.classList.add('hidden');
+    snakeSettingsPanel.classList.add('hidden');
   } else {
     currentGame = key;
     modePanel.classList.remove('hidden');
+    snakeSettingsPanel.classList.toggle('hidden', key !== 'snake');
   }
   setActiveNavButton(key);
   hubPanel.classList.toggle('hidden', key !== 'hub');

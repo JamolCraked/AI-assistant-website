@@ -188,6 +188,29 @@ input {
   color: var(--muted);
 }
 
+.settings-panel {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--muted);
+}
+
+.toggle-label {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #7de7ff;
+}
+
 .panel-play {
   display: grid;
   gap: 22px;
