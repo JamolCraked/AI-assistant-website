@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="hero-panel">
+      <div class="hero-copy">
+        <span class="eyebrow">IT Class Project</span>
+        <h1>AI Assistant Web Page</h1>
+        <p>Build a sleek, friendly AI assistant experience for your class project with chat, quick replies, and an animation-powered interface.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" id="focusInput">Start Chatting</button>
+          <button class="btn btn-secondary" id="resetChat">Reset Conversation</button>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div class="hero-card-header">
+          <div>
+            <p class="status-label">Virtual Assistant</p>
+            <h2>Nova</h2>
+          </div>
+          <div class="status-dot"></div>
+        </div>
+        <div class="assistant-preview">
+          <div class="preview-bubble preview-bubble--assistant">Hello! I'm Nova. Ask me anything.</div>
+          <div class="preview-bubble preview-bubble--user">What can you do?</div>
+          <div class="preview-bubble preview-bubble--assistant delay">I can help with ideas, homework tips, and site design.</div>
+        </div>
+        <div class="mini-stats">
+          <div>
+            <strong>5</strong>
+            <span>Features</span>
+          </div>
+          <div>
+            <strong>24/7</strong>
+            <span>Support</span>
+          </div>
+          <div>
+            <strong>100%</strong>
+            <span>Styled</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <section class="chat-section">
+      <div class="chat-shell">
+        <div class="chat-header">
+          <div>
+            <h2>Chat with Nova</h2>
+            <p>Type a message and Nova will reply instantly.</p>
+          </div>
+          <div class="chat-status">Online</div>
+        </div>
+        <div class="chat-window" id="chatWindow">
+          <div class="message message-assistant">
+            <div class="message-avatar">N</div>
+            <div class="message-body">
+              <p>Hey there! I’m Nova, your AI assistant. Try asking for a study tip, website idea, or a fun fact.</p>
+            </div>
+          </div>
+        </div>
+        <form class="chat-form" id="chatForm">
+          <input type="text" id="chatInput" placeholder="Ask Nova anything..." autocomplete="off" required />
+          <button type="submit" class="btn btn-primary">Send</button>
+        </form>
+      </div>
+      <aside class="feature-panel">
+        <h3>Project Highlights</h3>
+        <ul class="feature-list">
+          <li>Responsive modern layout</li>
+          <li>Animated chat interaction</li>
+          <li>Custom assistant replies</li>
+          <li>Dark/light gradient theme</li>
+          <li>Simple code for class presentation</li>
+        </ul>
+        <div class="quick-tips">
+          <h4>Try these prompts</h4>
+          <button class="tip-btn">Help me write a study plan</button>
+          <button class="tip-btn">Design a website idea</button>
+          <button class="tip-btn">Explain AI in simple terms</button>
+        </div>
+      </aside>
+    </section>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
