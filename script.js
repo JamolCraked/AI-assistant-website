@@ -335,13 +335,17 @@ function resetMemoryMatch() {
 function initSnake() {
   snakeState = {
     direction: 'right',
+    nextDirection: 'right',
     snake: [{ x: 2, y: 2 }],
     food: { x: 5, y: 5 },
-    speed: 120,
+    tickRate: 12,
     width: 12,
     height: 12,
     running: true,
-    loop: null,
+    lastFrameTime: null,
+    accumulatedTime: 0,
+    frameRequest: null,
+    previousSnake: null,
   };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Use arrow keys to move. Eat food and grow without hitting the wall.</div>
@@ -350,9 +354,9 @@ function initSnake() {
   `;
   const canvas = document.getElementById('snakeCanvas');
   const ctx = canvas.getContext('2d');
-  drawSnake(ctx);
+  drawSnake(ctx, 0);
   document.addEventListener('keydown', handleSnakeInput);
-  snakeState.loop = setInterval(() => updateSnake(ctx), snakeState.speed);
+  snakeState.frameRequest = requestAnimationFrame((timestamp) => animateSnake(timestamp, ctx));
   updateStatus(currentMode === 'ai' ? 'AI snake is playing. Watch the chase.' : 'Control the snake with arrow keys.');
 }
 
@@ -370,15 +374,41 @@ function handleSnakeInput(event) {
     up: 'down', down: 'up', left: 'right', right: 'left',
   };
   if (next !== opposite[snakeState.direction]) {
-    snakeState.direction = next;
+    snakeState.nextDirection = next;
   }
+}
+
+function animateSnake(timestamp, ctx) {
+  if (!snakeState.lastFrameTime) snakeState.lastFrameTime = timestamp;
+  const delta = timestamp - snakeState.lastFrameTime;
+  snakeState.lastFrameTime = timestamp;
+  snakeState.accumulatedTime += delta;
+  const tickDuration = 1000 / snakeState.tickRate;
+
+  while (snakeState.accumulatedTime >= tickDuration) {
+    snakeState.accumulatedTime -= tickDuration;
+    updateSnake(ctx);
+  }
+
+  const progress = Math.min(1, snakeState.accumulatedTime / tickDuration);
+  drawSnake(ctx, progress);
+  snakeState.frameRequest = requestAnimationFrame((ts) => animateSnake(ts, ctx));
 }
 
 function updateSnake(ctx) {
   if (!snakeState.running) return;
+  snakeState.previousSnake = snakeState.snake.map((segment) => ({ ...segment }));
   if (currentMode === 'ai') {
-    snakeState.direction = getSnakeAIDirection();
+    snakeState.nextDirection = getSnakeAIDirection();
   }
+
+  const opposite = {
+    up: 'down', down: 'up', left: 'right', right: 'left',
+  };
+  if (snakeState.nextDirection && snakeState.nextDirection !== opposite[snakeState.direction]) {
+    snakeState.direction = snakeState.nextDirection;
+  }
+
   const head = { ...snakeState.snake[0] };
   if (snakeState.direction === 'up') head.y -= 1;
   if (snakeState.direction === 'down') head.y += 1;
@@ -399,7 +429,6 @@ function updateSnake(ctx) {
   }
 
   document.getElementById('snakeScore').textContent = snakeState.snake.length;
-  drawSnake(ctx);
 }
 
 function getSnakeAIDirection() {
@@ -431,17 +460,44 @@ function getSnakeAIDirection() {
   return safeMoves[0];
 }
 
-function drawSnake(ctx) {
+function drawSnake(ctx, progress = 1) {
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   const cellSize = ctx.canvas.width / snakeState.width;
   ctx.fillStyle = 'rgba(255,255,255,0.05)';
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  const previous = snakeState.previousSnake || snakeState.snake;
   snakeState.snake.forEach((segment, index) => {
-    ctx.fillStyle = index === 0 ? '#7de7ff' : '#5b8df9';
-    ctx.fillRect(segment.x * cellSize + 2, segment.y * cellSize + 2, cellSize - 4, cellSize - 4);
+    const from = index === 0 ? previous[0] : previous[index - 1] || segment;
+    const to = segment;
+    const x = from.x + (to.x - from.x) * progress;
+    const y = from.y + (to.y - from.y) * progress;
+    const radius = cellSize * (index === 0 ? 0.48 : 0.42);
+
+    ctx.save();
+    if (index === 0) {
+      ctx.fillStyle = '#7de7ff';
+      ctx.shadowColor = 'rgba(125,231,255,0.9)';
+      ctx.shadowBlur = 18;
+    } else {
+      const fade = 1 - index / snakeState.snake.length;
+      ctx.fillStyle = `rgba(93,141,249,${0.55 + fade * 0.45})`;
+      ctx.shadowColor = 'rgba(79,141,255,0.25)';
+      ctx.shadowBlur = 8;
+    }
+    ctx.beginPath();
+    ctx.arc(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   });
+
   ctx.fillStyle = '#ffd166';
-  ctx.fillRect(snakeState.food.x * cellSize + 4, snakeState.food.y * cellSize + 4, cellSize - 8, cellSize - 8);
+  ctx.shadowColor = 'rgba(255,209,102,0.6)';
+  ctx.shadowBlur = 14;
+  ctx.beginPath();
+  ctx.arc(snakeState.food.x * cellSize + cellSize / 2, snakeState.food.y * cellSize + cellSize / 2, cellSize * 0.35, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
 }
 
 function placeSnakeFood() {
@@ -454,7 +510,10 @@ function placeSnakeFood() {
 
 function resetSnake() {
   if (currentGame !== 'snake') return;
-  clearInterval(snakeState.loop);
+  if (snakeState.frameRequest) {
+    cancelAnimationFrame(snakeState.frameRequest);
+    snakeState.frameRequest = null;
+  }
   document.removeEventListener('keydown', handleSnakeInput);
   initSnake();
 }
@@ -723,9 +782,9 @@ function setActiveNavButton(key) {
 }
 
 function stopSnakeLoop() {
-  if (snakeState && snakeState.loop) {
-    clearInterval(snakeState.loop);
-    snakeState.loop = null;
+  if (snakeState && snakeState.frameRequest) {
+    cancelAnimationFrame(snakeState.frameRequest);
+    snakeState.frameRequest = null;
   }
 }
 
