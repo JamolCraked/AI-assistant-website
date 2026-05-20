@@ -21,7 +21,7 @@ const snakeSpeedCurve = 0.9;
 
 function initSnakeAiModel() {
   if (snakeAiModel) return;
-  const inputSize = 10;
+  const inputSize = 13;
   const hiddenSize = 18;
   const outputSize = 4;
   const makeMatrix = (rows, cols) => Array.from({ length: rows }, () => Array.from({ length: cols }, () => (Math.random() * 2 - 1) * 0.2));
@@ -82,6 +82,9 @@ function aiTrain(features, target) {
 function snakeAiFeatures(head, food, direction, body, width, height) {
   const dx = (food.x - head.x) / width;
   const dy = (food.y - head.y) / height;
+  const foodX = food.x / Math.max(1, width - 1);
+  const foodY = food.y / Math.max(1, height - 1);
+  const distance = (Math.abs(food.x - head.x) + Math.abs(food.y - head.y)) / (width + height);
   const danger = ['up', 'down', 'left', 'right'].map((dir) => {
     const next = { x: head.x, y: head.y };
     if (dir === 'up') next.y -= 1;
@@ -91,7 +94,7 @@ function snakeAiFeatures(head, food, direction, body, width, height) {
     return next.x < 0 || next.y < 0 || next.x >= width || next.y >= height || body.some((segment) => segment.x === next.x && segment.y === next.y) ? 1 : 0;
   });
   const directionOneHot = ['up', 'down', 'left', 'right'].map((dir) => (direction === dir ? 1 : 0));
-  return [dx, dy, ...danger, ...directionOneHot];
+  return [dx, dy, foodX, foodY, distance, ...danger, ...directionOneHot];
 }
 
 function recordSnakeAiStep(actionIndex, features) {
@@ -112,8 +115,8 @@ function updateSnakeAiFromReward(reward) {
 
 function mapSliderToTickRate(raw) {
   const min = 1;
-  const max = 100;
-  const n = Math.max(0, Math.min(1, (Number(raw) - 1) / 99));
+  const max = 1000000;
+  const n = Math.max(0, Math.min(1, (Number(raw) - 1) / 999999));
   const mapped = min + Math.pow(n, snakeSpeedCurve) * (max - min);
   return Math.max(min, Math.round(mapped));
 }
@@ -203,7 +206,7 @@ function bindModeButtons() {
     const initial = Number(snakeSpeedRange.value || 12);
     snakeSpeedValue.textContent = String(mapSliderToTickRate(initial));
     snakeSpeedRange.addEventListener('input', () => {
-      const raw = Math.max(1, Math.min(100, Number(snakeSpeedRange.value || 12)));
+      const raw = Math.max(1, Math.min(1000000, Number(snakeSpeedRange.value || 12)));
       const mapped = mapSliderToTickRate(raw);
       snakeSpeedValue.textContent = String(mapped);
       if (snakeState) snakeState.tickRate = mapped;
@@ -502,6 +505,7 @@ function initSnake() {
     aiReward: snakeAiPoints,
     aiApples: 0,
     aiDeaths: 0,
+    aiStaleMoves: 0,
   };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Use arrow keys to move. Eat food and grow without hitting the wall.</div>
@@ -514,7 +518,6 @@ function initSnake() {
   const canvas = document.getElementById('snakeCanvas');
   const ctx = canvas.getContext('2d');
   // ensure UI reflects chosen speed
-  if (snakeSpeedRange) snakeSpeedRange.value = String(snakeState.tickRate);
   if (snakeSpeedValue) snakeSpeedValue.textContent = String(snakeState.tickRate);
   drawSnake(ctx, 0);
   document.addEventListener('keydown', handleSnakeInput);
@@ -625,10 +628,14 @@ function updateSnake(ctx) {
       snakeState.aiReward += 10;
       snakeAiPoints = snakeState.aiReward;
       snakeState.aiApples += 1;
+      snakeState.aiStaleMoves = 0;
       updateSnakeAiFromReward(10);
     }
   } else {
     snakeState.snake.pop();
+    if (currentMode === 'ai') {
+      snakeState.aiStaleMoves += 1;
+    }
   }
 
   document.getElementById('snakeScore').textContent = snakeState.snake.length;
@@ -730,7 +737,14 @@ function getSnakeAIDirection() {
   if (!scored.length) return snakeState.direction;
 
   scored.sort((a, b) => b.score - a.score);
-  const chosen = scored[0];
+  let chosen = scored[0];
+  if (snakeState.aiStaleMoves >= 100 && scored.length > 1) {
+    const alternative = scored.find((candidate) => candidate.dir !== snakeState.direction) || scored[1];
+    if (alternative) {
+      chosen = alternative;
+      snakeState.aiStaleMoves = 0;
+    }
+  }
   recordSnakeAiStep(chosen.index, features);
   return chosen.dir;
 }

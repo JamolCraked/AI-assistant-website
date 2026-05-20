@@ -211,6 +211,19 @@ input {
   accent-color: #7de7ff;
 }
 
+.range-label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+  width: min(100%, 420px);
+}
+
+.range-label input[type="range"] {
+  width: 100%;
+  accent-color: #7de7ff;
+}
+
 .panel-play {
   display: grid;
   gap: 22px;
