@@ -106,30 +106,39 @@ function bindModeButtons() {
 }
 
 function bindNavigation() {
+  // Use pointerdown for faster response on touch/pointer devices, with a click guard
   navButtons.forEach((button) => {
-    button.addEventListener('click', () => {
+    let lastPointer = 0;
+    const doNavigate = () => {
       const target = button.dataset.game;
       if (target === 'hub') return setActiveGame('hub');
       setActiveGame(target);
-    });
+    };
+    button.addEventListener('pointerdown', (e) => { lastPointer = Date.now(); e.preventDefault(); doNavigate(); });
+    button.addEventListener('click', (e) => { if (Date.now() - lastPointer < 400) return; doNavigate(); });
   });
 
   document.querySelectorAll('.game-card').forEach((card) => {
-    card.addEventListener('click', () => {
-      const gameKey = card.dataset.game;
-      setActiveGame(gameKey);
-    });
+    let lastPointer = 0;
+    const doOpen = () => { const gameKey = card.dataset.game; setActiveGame(gameKey); };
+    card.addEventListener('pointerdown', (e) => { lastPointer = Date.now(); e.preventDefault(); doOpen(); });
+    card.addEventListener('click', (e) => { if (Date.now() - lastPointer < 400) return; doOpen(); });
   });
 
-  resetGameButton.addEventListener('click', () => {
-    if (currentGame && games[currentGame] && games[currentGame].reset) {
-      games[currentGame].reset();
-    }
-  });
+  // make footer buttons respond faster on touch while preserving keyboard access
+  (function setupButton(btn, fn) {
+    let lastPointer = 0;
+    btn.addEventListener('pointerdown', (e) => { lastPointer = Date.now(); e.preventDefault(); fn(); });
+    btn.addEventListener('click', (e) => { if (Date.now() - lastPointer < 400) return; fn(); });
+  }(resetGameButton, () => {
+    if (currentGame && games[currentGame] && games[currentGame].reset) games[currentGame].reset();
+  }));
 
-  returnHubButton.addEventListener('click', () => {
-    setActiveGame('hub');
-  });
+  (function setupButton2(btn, fn) {
+    let lastPointer = 0;
+    btn.addEventListener('pointerdown', (e) => { lastPointer = Date.now(); e.preventDefault(); fn(); });
+    btn.addEventListener('click', (e) => { if (Date.now() - lastPointer < 400) return; fn(); });
+  }(returnHubButton, () => { setActiveGame('hub'); }));
 
   bindModeButtons();
 }
@@ -148,7 +157,13 @@ function initTicTacToe() {
     const cell = document.createElement('button');
     cell.className = 'cell';
     cell.dataset.index = i;
-    cell.addEventListener('click', () => chooseTicCell(i, cell));
+    // pointerdown + click guard for responsive and precise input
+    (function attachHandlers(el, idx) {
+      let lastPointer = 0;
+      const handler = () => chooseTicCell(idx, el);
+      el.addEventListener('pointerdown', (e) => { lastPointer = Date.now(); e.preventDefault(); handler(); });
+      el.addEventListener('click', (e) => { if (Date.now() - lastPointer < 400) return; handler(); });
+    }(cell, i));
     board.appendChild(cell);
   }
   updateStatus(currentMode === 'ai' ? 'Your turn as X. AI will play O.' : 'Tap a square to place X or O.');
@@ -257,7 +272,12 @@ function initMemoryMatch() {
     const card = document.createElement('button');
     card.className = 'card';
     card.dataset.index = index;
-    card.addEventListener('click', () => flipMemoryCard(index, card, 'human'));
+    (function attachHandlers(el, idx) {
+      let lastPointer = 0;
+      const handler = () => flipMemoryCard(idx, el, 'human');
+      el.addEventListener('pointerdown', (e) => { lastPointer = Date.now(); e.preventDefault(); handler(); });
+      el.addEventListener('click', (e) => { if (Date.now() - lastPointer < 400) return; handler(); });
+    }(card, index));
     board.appendChild(card);
   });
   updateStatus(currentMode === 'ai' ? 'Your turn to flip. AI will follow.' : 'Your turn to flip cards.');
@@ -407,6 +427,10 @@ function handleSnakeInput(event) {
   };
   const next = directions[event.key];
   if (!next) return;
+  // prevent page scrolling / default behaviors for movement keys
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'w', 'W', 'a', 'A', 's', 'S', 'd', 'D'].includes(event.key)) {
+    event.preventDefault();
+  }
   const opposite = {
     up: 'down', down: 'up', left: 'right', right: 'left',
   };
@@ -656,12 +680,12 @@ function initFPS() {
 function handleFPSKeyDown(event) {
   if (currentGame !== 'fps') return;
   const key = event.key.toLowerCase();
+  if (['w', 'a', 's', 'd', ' '].includes(key)) event.preventDefault();
   if (key === 'w') fpsState.keys.forward = true;
   if (key === 's') fpsState.keys.back = true;
   if (key === 'a') fpsState.keys.left = true;
   if (key === 'd') fpsState.keys.right = true;
   if (key === ' ') {
-    event.preventDefault();
     shootFPS();
   }
 }
