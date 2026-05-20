@@ -13,8 +13,102 @@ const snakeSettingsPanel = document.getElementById('snakeSettingsPanel');
 const snakeAutoRestartCheckbox = document.getElementById('snakeAutoRestart');
 const snakeSpeedRange = document.getElementById('snakeSpeed');
 const snakeSpeedValue = document.getElementById('snakeSpeedValue');
+let snakeAiPoints = 0;
+let snakeAiModel = null;
+let snakeAiExperience = [];
 // Non-linear mapping curve (0 < curve < 1 -> concave, >1 -> convex)
 const snakeSpeedCurve = 0.9;
+
+function initSnakeAiModel() {
+  if (snakeAiModel) return;
+  const inputSize = 10;
+  const hiddenSize = 18;
+  const outputSize = 4;
+  const makeMatrix = (rows, cols) => Array.from({ length: rows }, () => Array.from({ length: cols }, () => (Math.random() * 2 - 1) * 0.2));
+  snakeAiModel = {
+    inputSize,
+    hiddenSize,
+    outputSize,
+    learningRate: 0.03,
+    weights1: makeMatrix(hiddenSize, inputSize),
+    bias1: Array.from({ length: hiddenSize }, () => 0),
+    weights2: makeMatrix(outputSize, hiddenSize),
+    bias2: Array.from({ length: outputSize }, () => 0),
+  };
+}
+
+function relu(value) {
+  return Math.max(0, value);
+}
+
+function reluDerivative(value) {
+  return value > 0 ? 1 : 0.01;
+}
+
+function aiForward(features) {
+  const hidden = snakeAiModel.weights1.map((weightsRow, rowIndex) => {
+    const sum = weightsRow.reduce((acc, weight, colIndex) => acc + weight * features[colIndex], snakeAiModel.bias1[rowIndex]);
+    return relu(sum);
+  });
+  const output = snakeAiModel.weights2.map((weightsRow, rowIndex) => {
+    return weightsRow.reduce((acc, weight, colIndex) => acc + weight * hidden[colIndex], snakeAiModel.bias2[rowIndex]);
+  });
+  return { hidden, output };
+}
+
+function aiTrain(features, target) {
+  const { hidden, output } = aiForward(features);
+  const gradOutput = output.map((value, index) => 2 * (value - target[index]));
+  const hiddenGrad = Array(snakeAiModel.hiddenSize).fill(0);
+
+  snakeAiModel.weights2.forEach((weightsRow, rowIndex) => {
+    weightsRow.forEach((weight, colIndex) => {
+      const delta = gradOutput[rowIndex] * hidden[colIndex];
+      snakeAiModel.weights2[rowIndex][colIndex] -= snakeAiModel.learningRate * delta;
+      hiddenGrad[colIndex] += gradOutput[rowIndex] * weight;
+    });
+    snakeAiModel.bias2[rowIndex] -= snakeAiModel.learningRate * gradOutput[rowIndex];
+  });
+
+  snakeAiModel.weights1.forEach((weightsRow, rowIndex) => {
+    weightsRow.forEach((weight, colIndex) => {
+      const delta = hiddenGrad[rowIndex] * reluDerivative(hidden[rowIndex]) * features[colIndex];
+      snakeAiModel.weights1[rowIndex][colIndex] -= snakeAiModel.learningRate * delta;
+    });
+    snakeAiModel.bias1[rowIndex] -= snakeAiModel.learningRate * hiddenGrad[rowIndex] * reluDerivative(hidden[rowIndex]);
+  });
+}
+
+function snakeAiFeatures(head, food, direction, body, width, height) {
+  const dx = (food.x - head.x) / width;
+  const dy = (food.y - head.y) / height;
+  const danger = ['up', 'down', 'left', 'right'].map((dir) => {
+    const next = { x: head.x, y: head.y };
+    if (dir === 'up') next.y -= 1;
+    if (dir === 'down') next.y += 1;
+    if (dir === 'left') next.x -= 1;
+    if (dir === 'right') next.x += 1;
+    return next.x < 0 || next.y < 0 || next.x >= width || next.y >= height || body.some((segment) => segment.x === next.x && segment.y === next.y) ? 1 : 0;
+  });
+  const directionOneHot = ['up', 'down', 'left', 'right'].map((dir) => (direction === dir ? 1 : 0));
+  return [dx, dy, ...danger, ...directionOneHot];
+}
+
+function recordSnakeAiStep(actionIndex, features) {
+  snakeAiExperience.push({ actionIndex, features });
+  if (snakeAiExperience.length > 50) snakeAiExperience.shift();
+}
+
+function updateSnakeAiFromReward(reward) {
+  snakeAiExperience.forEach((experience, index) => {
+    const predicted = aiForward(experience.features).output;
+    const target = predicted.slice();
+    const decay = 1 - index / Math.max(1, snakeAiExperience.length);
+    target[experience.actionIndex] += reward * decay * 0.08;
+    aiTrain(experience.features, target);
+  });
+  snakeAiExperience = [];
+}
 
 function mapSliderToTickRate(raw) {
   const min = 1;
@@ -390,6 +484,7 @@ function resetMemoryMatch() {
 }
 
 function initSnake() {
+  initSnakeAiModel();
   snakeState = {
     direction: 'right',
     nextDirection: 'right',
@@ -404,11 +499,17 @@ function initSnake() {
     frameRequest: null,
     previousSnake: null,
     deathTimeout: null,
+    aiReward: snakeAiPoints,
+    aiApples: 0,
+    aiDeaths: 0,
   };
   gameContainer.innerHTML = `
     <div class="game-info status-bar">Use arrow keys to move. Eat food and grow without hitting the wall.</div>
     <canvas id="snakeCanvas" width="360" height="360"></canvas>
-    <div class="score-panel"><span>Length: <strong id="snakeScore">1</strong></span></div>
+    <div class="score-panel">
+      <span>Length: <strong id="snakeScore">1</strong></span>
+      <span>AI points: <strong id="snakeAiPoints">${snakeAiPoints}</strong></span>
+    </div>
   `;
   const canvas = document.getElementById('snakeCanvas');
   const ctx = canvas.getContext('2d');
@@ -489,9 +590,15 @@ function updateSnake(ctx) {
   if (snakeState.direction === 'right') head.x += 1;
 
   if (head.x < 0 || head.y < 0 || head.x >= snakeState.width || head.y >= snakeState.height || snakeState.snake.some((segment) => segment.x === head.x && segment.y === head.y)) {
-    // collision detected -> stop the game cleanly to avoid flashing
+    // collision detected -> punish the AI and stop cleanly
     snakeState.running = false;
-    updateStatus('Game over. Restarting in a moment...');
+    if (currentMode === 'ai') {
+      snakeState.aiReward -= 200;
+      snakeAiPoints = snakeState.aiReward;
+      snakeState.aiDeaths += 1;
+      updateSnakeAiFromReward(-200);
+    }
+    updateStatus('Game over. AI punished for a bad move. Restarting in a moment...');
     // cancel animation loop to prevent draw flicker
     if (snakeState.frameRequest) {
       cancelAnimationFrame(snakeState.frameRequest);
@@ -514,11 +621,19 @@ function updateSnake(ctx) {
   snakeState.snake.unshift(head);
   if (head.x === snakeState.food.x && head.y === snakeState.food.y) {
     snakeState.food = placeSnakeFood();
+    if (currentMode === 'ai') {
+      snakeState.aiReward += 10;
+      snakeAiPoints = snakeState.aiReward;
+      snakeState.aiApples += 1;
+      updateSnakeAiFromReward(10);
+    }
   } else {
     snakeState.snake.pop();
   }
 
   document.getElementById('snakeScore').textContent = snakeState.snake.length;
+  const pointsEl = document.getElementById('snakeAiPoints');
+  if (pointsEl) pointsEl.textContent = String(snakeState.aiReward);
 }
 
 function isSnakeCell(x, y, body) {
@@ -598,40 +713,26 @@ function getSnakeAIDirection() {
   const currentDir = snakeState.direction;
   const snakeBody = snakeState.snake;
 
-  const candidates = [];
-  for (const dir of directions) {
+  initSnakeAiModel();
+  const features = snakeAiFeatures(head, target, currentDir, snakeBody, snakeState.width, snakeState.height);
+  const networkOutput = aiForward(features).output;
+
+  const scored = [];
+  for (let idx = 0; idx < directions.length; idx += 1) {
+    const dir = directions[idx];
     if (dir === opposite[currentDir]) continue;
     const next = movePoint(head, dir);
-    const nextKey = gridKey(next);
     if (next.x < 0 || next.y < 0 || next.x >= snakeState.width || next.y >= snakeState.height) continue;
     if (isSnakeCell(next.x, next.y, snakeBody)) continue;
-
-    const willEat = next.x === target.x && next.y === target.y;
-    const blocked = buildBlockedSet(snakeBody, !willEat);
-    blocked.add(nextKey);
-
-    const pathToFood = bfsPath(next, target, blocked, snakeState.width, snakeState.height);
-    const reachable = countReachableCells(next, blocked, snakeState.width, snakeState.height);
-    const distance = pathToFood ? pathToFood.length : Infinity;
-    const directFood = willEat || (pathToFood && pathToFood.length > 0 && pathToFood[0] === dir);
-
-    candidates.push({ dir, pathToFood, reachable, distance, directFood, willEat });
+    scored.push({ dir, score: networkOutput[idx], index: idx });
   }
 
-  if (!candidates.length) return snakeState.direction;
+  if (!scored.length) return snakeState.direction;
 
-  candidates.sort((a, b) => {
-    if (a.willEat !== b.willEat) return a.willEat ? -1 : 1;
-    if (Boolean(a.pathToFood) !== Boolean(b.pathToFood)) return a.pathToFood ? -1 : 1;
-    if (a.reachable !== b.reachable) return b.reachable - a.reachable;
-    if (a.distance !== b.distance) return a.distance - b.distance;
-    if (a.directFood !== b.directFood) return a.directFood ? -1 : 1;
-    if (a.dir === currentDir && b.dir !== currentDir) return -1;
-    if (b.dir === currentDir && a.dir !== currentDir) return 1;
-    return 0;
-  });
-
-  return candidates[0].dir;
+  scored.sort((a, b) => b.score - a.score);
+  const chosen = scored[0];
+  recordSnakeAiStep(chosen.index, features);
+  return chosen.dir;
 }
 
 function drawSnake(ctx, progress = 1) {
@@ -698,6 +799,7 @@ function placeSnakeFood() {
 
 function resetSnake() {
   if (currentGame !== 'snake') return;
+  snakeAiExperience = [];
   if (snakeState.deathTimeout) {
     clearTimeout(snakeState.deathTimeout);
     snakeState.deathTimeout = null;
