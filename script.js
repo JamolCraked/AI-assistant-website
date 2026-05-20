@@ -13,105 +13,15 @@ const snakeSettingsPanel = document.getElementById('snakeSettingsPanel');
 const snakeAutoRestartCheckbox = document.getElementById('snakeAutoRestart');
 const snakeSpeedRange = document.getElementById('snakeSpeed');
 const snakeSpeedValue = document.getElementById('snakeSpeedValue');
+const snakeBoardWidthInput = document.getElementById('snakeBoardWidth');
+const snakeBoardHeightInput = document.getElementById('snakeBoardHeight');
+const snakeBoardWidthValue = document.getElementById('snakeBoardWidthValue');
+const snakeBoardHeightValue = document.getElementById('snakeBoardHeightValue');
 let snakeAiPoints = 0;
-let snakeAiModel = null;
-let snakeAiExperience = [];
+let snakeBoardWidthSelected = 12;
+let snakeBoardHeightSelected = 12;
 // Non-linear mapping curve (0 < curve < 1 -> concave, >1 -> convex)
 const snakeSpeedCurve = 0.9;
-
-function initSnakeAiModel() {
-  if (snakeAiModel) return;
-  const inputSize = 13;
-  const hiddenSize = 18;
-  const outputSize = 4;
-  const makeMatrix = (rows, cols) => Array.from({ length: rows }, () => Array.from({ length: cols }, () => (Math.random() * 2 - 1) * 0.2));
-  snakeAiModel = {
-    inputSize,
-    hiddenSize,
-    outputSize,
-    learningRate: 0.03,
-    weights1: makeMatrix(hiddenSize, inputSize),
-    bias1: Array.from({ length: hiddenSize }, () => 0),
-    weights2: makeMatrix(outputSize, hiddenSize),
-    bias2: Array.from({ length: outputSize }, () => 0),
-  };
-}
-
-function relu(value) {
-  return Math.max(0, value);
-}
-
-function reluDerivative(value) {
-  return value > 0 ? 1 : 0.01;
-}
-
-function aiForward(features) {
-  const hidden = snakeAiModel.weights1.map((weightsRow, rowIndex) => {
-    const sum = weightsRow.reduce((acc, weight, colIndex) => acc + weight * features[colIndex], snakeAiModel.bias1[rowIndex]);
-    return relu(sum);
-  });
-  const output = snakeAiModel.weights2.map((weightsRow, rowIndex) => {
-    return weightsRow.reduce((acc, weight, colIndex) => acc + weight * hidden[colIndex], snakeAiModel.bias2[rowIndex]);
-  });
-  return { hidden, output };
-}
-
-function aiTrain(features, target) {
-  const { hidden, output } = aiForward(features);
-  const gradOutput = output.map((value, index) => 2 * (value - target[index]));
-  const hiddenGrad = Array(snakeAiModel.hiddenSize).fill(0);
-
-  snakeAiModel.weights2.forEach((weightsRow, rowIndex) => {
-    weightsRow.forEach((weight, colIndex) => {
-      const delta = gradOutput[rowIndex] * hidden[colIndex];
-      snakeAiModel.weights2[rowIndex][colIndex] -= snakeAiModel.learningRate * delta;
-      hiddenGrad[colIndex] += gradOutput[rowIndex] * weight;
-    });
-    snakeAiModel.bias2[rowIndex] -= snakeAiModel.learningRate * gradOutput[rowIndex];
-  });
-
-  snakeAiModel.weights1.forEach((weightsRow, rowIndex) => {
-    weightsRow.forEach((weight, colIndex) => {
-      const delta = hiddenGrad[rowIndex] * reluDerivative(hidden[rowIndex]) * features[colIndex];
-      snakeAiModel.weights1[rowIndex][colIndex] -= snakeAiModel.learningRate * delta;
-    });
-    snakeAiModel.bias1[rowIndex] -= snakeAiModel.learningRate * hiddenGrad[rowIndex] * reluDerivative(hidden[rowIndex]);
-  });
-}
-
-function snakeAiFeatures(head, food, direction, body, width, height) {
-  const dx = (food.x - head.x) / width;
-  const dy = (food.y - head.y) / height;
-  const foodX = food.x / Math.max(1, width - 1);
-  const foodY = food.y / Math.max(1, height - 1);
-  const distance = (Math.abs(food.x - head.x) + Math.abs(food.y - head.y)) / (width + height);
-  const danger = ['up', 'down', 'left', 'right'].map((dir) => {
-    const next = { x: head.x, y: head.y };
-    if (dir === 'up') next.y -= 1;
-    if (dir === 'down') next.y += 1;
-    if (dir === 'left') next.x -= 1;
-    if (dir === 'right') next.x += 1;
-    return next.x < 0 || next.y < 0 || next.x >= width || next.y >= height || body.some((segment) => segment.x === next.x && segment.y === next.y) ? 1 : 0;
-  });
-  const directionOneHot = ['up', 'down', 'left', 'right'].map((dir) => (direction === dir ? 1 : 0));
-  return [dx, dy, foodX, foodY, distance, ...danger, ...directionOneHot];
-}
-
-function recordSnakeAiStep(actionIndex, features) {
-  snakeAiExperience.push({ actionIndex, features });
-  if (snakeAiExperience.length > 50) snakeAiExperience.shift();
-}
-
-function updateSnakeAiFromReward(reward) {
-  snakeAiExperience.forEach((experience, index) => {
-    const predicted = aiForward(experience.features).output;
-    const target = predicted.slice();
-    const decay = 1 - index / Math.max(1, snakeAiExperience.length);
-    target[experience.actionIndex] += reward * decay * 0.08;
-    aiTrain(experience.features, target);
-  });
-  snakeAiExperience = [];
-}
 
 function mapSliderToTickRate(raw) {
   const min = 1;
@@ -201,16 +111,36 @@ function bindModeButtons() {
   snakeAutoRestartCheckbox.addEventListener('change', () => {
     snakeAutoRestart = snakeAutoRestartCheckbox.checked;
   });
-  if (snakeSpeedRange) {
-    // keep displayed value and state in sync (display mapped tick rate)
-    const initial = Number(snakeSpeedRange.value || 12);
-    snakeSpeedValue.textContent = String(mapSliderToTickRate(initial));
-    snakeSpeedRange.addEventListener('input', () => {
-      const raw = Math.max(1, Math.min(1000000, Number(snakeSpeedRange.value || 12)));
-      const mapped = mapSliderToTickRate(raw);
-      snakeSpeedValue.textContent = String(mapped);
-      if (snakeState) snakeState.tickRate = mapped;
-    });
+  const syncSpeedControls = (raw) => {
+    const value = Math.max(1, Math.min(1000000, Number(raw || 12)));
+    const mapped = mapSliderToTickRate(value);
+    snakeSpeedValue.textContent = String(mapped);
+    if (snakeState) snakeState.tickRate = mapped;
+    if (snakeSpeedRange) snakeSpeedRange.value = String(value);
+    if (snakeSpeedInput) snakeSpeedInput.value = String(value);
+  };
+  if (snakeSpeedRange || snakeSpeedInput) {
+    const initial = Number((snakeSpeedInput?.value || snakeSpeedRange?.value || 12));
+    syncSpeedControls(initial);
+    if (snakeSpeedRange) {
+      snakeSpeedRange.addEventListener('input', () => syncSpeedControls(snakeSpeedRange.value));
+    }
+    if (snakeSpeedInput) {
+      snakeSpeedInput.addEventListener('input', () => syncSpeedControls(snakeSpeedInput.value));
+    }
+  }
+  if (snakeBoardWidthInput && snakeBoardHeightInput && snakeBoardWidthValue && snakeBoardHeightValue) {
+    const syncBoardInputs = () => {
+      const width = Math.max(6, Math.min(60, Number(snakeBoardWidthInput.value || 12)));
+      const height = Math.max(6, Math.min(60, Number(snakeBoardHeightInput.value || 12)));
+      snakeBoardWidthSelected = width;
+      snakeBoardHeightSelected = height;
+      snakeBoardWidthValue.textContent = String(width);
+      snakeBoardHeightValue.textContent = String(height);
+    };
+    syncBoardInputs();
+    snakeBoardWidthInput.addEventListener('input', syncBoardInputs);
+    snakeBoardHeightInput.addEventListener('input', syncBoardInputs);
   }
 }
 
@@ -487,15 +417,14 @@ function resetMemoryMatch() {
 }
 
 function initSnake() {
-  initSnakeAiModel();
   snakeState = {
     direction: 'right',
     nextDirection: 'right',
     snake: [{ x: 2, y: 2 }],
     food: { x: 5, y: 5 },
     tickRate: mapSliderToTickRate(Number(snakeSpeedRange?.value ?? 12)),
-    width: 12,
-    height: 12,
+    width: snakeBoardWidthSelected,
+    height: snakeBoardHeightSelected,
     running: true,
     lastFrameTime: null,
     accumulatedTime: 0,
@@ -572,7 +501,8 @@ function animateSnake(timestamp, ctx) {
   snakeState.frameRequest = requestAnimationFrame((ts) => animateSnake(ts, ctx));
 }
 
-function updateSnake(ctx) {
+function updateSnake(ctx) {}
+
   if (!snakeState.running) return;
   snakeState.previousSnake = snakeState.snake.map((segment) => ({ ...segment }));
   if (currentMode === 'ai') {
@@ -599,7 +529,6 @@ function updateSnake(ctx) {
       snakeState.aiReward -= 200;
       snakeAiPoints = snakeState.aiReward;
       snakeState.aiDeaths += 1;
-      updateSnakeAiFromReward(-200);
     }
     updateStatus('Game over. AI punished for a bad move. Restarting in a moment...');
     // cancel animation loop to prevent draw flicker
@@ -629,14 +558,7 @@ function updateSnake(ctx) {
       snakeAiPoints = snakeState.aiReward;
       snakeState.aiApples += 1;
       snakeState.aiStaleMoves = 0;
-      updateSnakeAiFromReward(10);
-    }
-  } else {
-    snakeState.snake.pop();
-    if (currentMode === 'ai') {
-      snakeState.aiStaleMoves += 1;
-    }
-  }
+
 
   document.getElementById('snakeScore').textContent = snakeState.snake.length;
   const pointsEl = document.getElementById('snakeAiPoints');
@@ -720,32 +642,36 @@ function getSnakeAIDirection() {
   const currentDir = snakeState.direction;
   const snakeBody = snakeState.snake;
 
-  initSnakeAiModel();
-  const features = snakeAiFeatures(head, target, currentDir, snakeBody, snakeState.width, snakeState.height);
-  const networkOutput = aiForward(features).output;
+  const blocked = buildBlockedSet(snakeBody, true);
+  const pathToFood = bfsPath(head, target, blocked, snakeState.width, snakeState.height);
+  if (pathToFood && pathToFood.length) {
+    return pathToFood[0];
+  }
 
-  const scored = [];
-  for (let idx = 0; idx < directions.length; idx += 1) {
-    const dir = directions[idx];
+  const safeMoves = [];
+  for (const dir of directions) {
     if (dir === opposite[currentDir]) continue;
     const next = movePoint(head, dir);
     if (next.x < 0 || next.y < 0 || next.x >= snakeState.width || next.y >= snakeState.height) continue;
     if (isSnakeCell(next.x, next.y, snakeBody)) continue;
-    scored.push({ dir, score: networkOutput[idx], index: idx });
+    const nextBlocked = buildBlockedSet(snakeBody, false);
+    nextBlocked.add(gridKey(next));
+    const reachable = countReachableCells(next, nextBlocked, snakeState.width, snakeState.height);
+    safeMoves.push({ dir, reachable });
   }
 
-  if (!scored.length) return snakeState.direction;
+  if (!safeMoves.length) return snakeState.direction;
+  safeMoves.sort((a, b) => b.reachable - a.reachable);
 
-  scored.sort((a, b) => b.score - a.score);
-  let chosen = scored[0];
-  if (snakeState.aiStaleMoves >= 100 && scored.length > 1) {
-    const alternative = scored.find((candidate) => candidate.dir !== snakeState.direction) || scored[1];
+  let chosen = safeMoves[0];
+  if (snakeState.aiStaleMoves >= 100) {
+    const alternative = safeMoves.find((move) => move.dir !== snakeState.direction);
     if (alternative) {
       chosen = alternative;
       snakeState.aiStaleMoves = 0;
     }
   }
-  recordSnakeAiStep(chosen.index, features);
+
   return chosen.dir;
 }
 
@@ -813,7 +739,6 @@ function placeSnakeFood() {
 
 function resetSnake() {
   if (currentGame !== 'snake') return;
-  snakeAiExperience = [];
   if (snakeState.deathTimeout) {
     clearTimeout(snakeState.deathTimeout);
     snakeState.deathTimeout = null;
@@ -1476,3 +1401,4 @@ function startKeepAlive() {
 }
 
 startKeepAlive();
+  }
