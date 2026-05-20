@@ -13,6 +13,16 @@ const snakeSettingsPanel = document.getElementById('snakeSettingsPanel');
 const snakeAutoRestartCheckbox = document.getElementById('snakeAutoRestart');
 const snakeSpeedRange = document.getElementById('snakeSpeed');
 const snakeSpeedValue = document.getElementById('snakeSpeedValue');
+// Non-linear mapping curve (0 < curve < 1 -> concave, >1 -> convex)
+const snakeSpeedCurve = 0.9;
+
+function mapSliderToTickRate(raw) {
+  const min = 1;
+  const max = 100;
+  const n = Math.max(0, Math.min(1, (Number(raw) - 1) / 99));
+  const mapped = min + Math.pow(n, snakeSpeedCurve) * (max - min);
+  return Math.max(min, Math.round(mapped));
+}
 
 const games = {
   ticTacToe: {
@@ -95,12 +105,14 @@ function bindModeButtons() {
     snakeAutoRestart = snakeAutoRestartCheckbox.checked;
   });
   if (snakeSpeedRange) {
-    // keep displayed value and state in sync
-    snakeSpeedValue.textContent = snakeSpeedRange.value || '12';
+    // keep displayed value and state in sync (display mapped tick rate)
+    const initial = Number(snakeSpeedRange.value || 12);
+    snakeSpeedValue.textContent = String(mapSliderToTickRate(initial));
     snakeSpeedRange.addEventListener('input', () => {
-      const v = Math.max(1, Math.min(100, Number(snakeSpeedRange.value || 12)));
-      snakeSpeedValue.textContent = v;
-      if (snakeState) snakeState.tickRate = v;
+      const raw = Math.max(1, Math.min(100, Number(snakeSpeedRange.value || 12)));
+      const mapped = mapSliderToTickRate(raw);
+      snakeSpeedValue.textContent = String(mapped);
+      if (snakeState) snakeState.tickRate = mapped;
     });
   }
 }
@@ -383,7 +395,7 @@ function initSnake() {
     nextDirection: 'right',
     snake: [{ x: 2, y: 2 }],
     food: { x: 5, y: 5 },
-    tickRate: Number(snakeSpeedRange?.value ?? 12),
+    tickRate: mapSliderToTickRate(Number(snakeSpeedRange?.value ?? 12)),
     width: 12,
     height: 12,
     running: true,
