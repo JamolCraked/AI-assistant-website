@@ -11,6 +11,8 @@ const humanModeButton = document.getElementById('humanMode');
 const aiModeButton = document.getElementById('aiMode');
 const snakeSettingsPanel = document.getElementById('snakeSettingsPanel');
 const snakeAutoRestartCheckbox = document.getElementById('snakeAutoRestart');
+const snakeSpeedRange = document.getElementById('snakeSpeed');
+const snakeSpeedValue = document.getElementById('snakeSpeedValue');
 
 const games = {
   ticTacToe: {
@@ -92,6 +94,15 @@ function bindModeButtons() {
   snakeAutoRestartCheckbox.addEventListener('change', () => {
     snakeAutoRestart = snakeAutoRestartCheckbox.checked;
   });
+  if (snakeSpeedRange) {
+    // keep displayed value and state in sync
+    snakeSpeedValue.textContent = snakeSpeedRange.value || '12';
+    snakeSpeedRange.addEventListener('input', () => {
+      const v = Math.max(1, Math.min(100, Number(snakeSpeedRange.value || 12)));
+      snakeSpeedValue.textContent = v;
+      if (snakeState) snakeState.tickRate = v;
+    });
+  }
 }
 
 function bindNavigation() {
@@ -352,7 +363,7 @@ function initSnake() {
     nextDirection: 'right',
     snake: [{ x: 2, y: 2 }],
     food: { x: 5, y: 5 },
-    tickRate: 12,
+    tickRate: Number(snakeSpeedRange?.value ?? 12),
     width: 12,
     height: 12,
     running: true,
@@ -369,6 +380,9 @@ function initSnake() {
   `;
   const canvas = document.getElementById('snakeCanvas');
   const ctx = canvas.getContext('2d');
+  // ensure UI reflects chosen speed
+  if (snakeSpeedRange) snakeSpeedRange.value = String(snakeState.tickRate);
+  if (snakeSpeedValue) snakeSpeedValue.textContent = String(snakeState.tickRate);
   drawSnake(ctx, 0);
   document.addEventListener('keydown', handleSnakeInput);
   snakeState.frameRequest = requestAnimationFrame((timestamp) => animateSnake(timestamp, ctx));
@@ -439,8 +453,19 @@ function updateSnake(ctx) {
   if (snakeState.direction === 'right') head.x += 1;
 
   if (head.x < 0 || head.y < 0 || head.x >= snakeState.width || head.y >= snakeState.height || snakeState.snake.some((segment) => segment.x === head.x && segment.y === head.y)) {
+    // collision detected -> stop the game cleanly to avoid flashing
     snakeState.running = false;
     updateStatus('Game over. Restarting in a moment...');
+    // cancel animation loop to prevent draw flicker
+    if (snakeState.frameRequest) {
+      cancelAnimationFrame(snakeState.frameRequest);
+      snakeState.frameRequest = null;
+    }
+    // remove input listener to freeze controls until reset
+    document.removeEventListener('keydown', handleSnakeInput);
+    // draw one final static frame
+    snakeState.previousSnake = snakeState.previousSnake || snakeState.snake.map((s) => ({ ...s }));
+    drawSnake(ctx, 1);
     if (snakeAutoRestart && !snakeState.deathTimeout) {
       snakeState.deathTimeout = setTimeout(() => {
         snakeState.deathTimeout = null;
