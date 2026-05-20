@@ -621,13 +621,13 @@ function getSnakeAIDirection() {
   if (!candidates.length) return snakeState.direction;
 
   candidates.sort((a, b) => {
-    if (Boolean(a.pathToFood) !== Boolean(b.pathToFood)) return b.pathToFood ? 1 : -1;
+    if (a.willEat !== b.willEat) return a.willEat ? -1 : 1;
+    if (Boolean(a.pathToFood) !== Boolean(b.pathToFood)) return a.pathToFood ? -1 : 1;
     if (a.reachable !== b.reachable) return b.reachable - a.reachable;
     if (a.distance !== b.distance) return a.distance - b.distance;
-    if (a.willEat !== b.willEat) return a.willEat ? -1 : 1;
     if (a.directFood !== b.directFood) return a.directFood ? -1 : 1;
-    if (a.dir === currentDir) return -1;
-    if (b.dir === currentDir) return 1;
+    if (a.dir === currentDir && b.dir !== currentDir) return -1;
+    if (b.dir === currentDir && a.dir !== currentDir) return 1;
     return 0;
   });
 
