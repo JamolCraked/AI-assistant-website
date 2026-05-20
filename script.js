@@ -521,33 +521,117 @@ function updateSnake(ctx) {
   document.getElementById('snakeScore').textContent = snakeState.snake.length;
 }
 
+function isSnakeCell(x, y, body) {
+  return body.some((segment) => segment.x === x && segment.y === y);
+}
+
+function movePoint(point, direction) {
+  const next = { x: point.x, y: point.y };
+  if (direction === 'up') next.y -= 1;
+  if (direction === 'down') next.y += 1;
+  if (direction === 'left') next.x -= 1;
+  if (direction === 'right') next.x += 1;
+  return next;
+}
+
+function gridKey(point) {
+  return `${point.x},${point.y}`;
+}
+
+function buildBlockedSet(body, allowTail) {
+  const blocked = new Set();
+  body.forEach((segment, index) => {
+    if (allowTail && index === body.length - 1) return;
+    blocked.add(gridKey(segment));
+  });
+  return blocked;
+}
+
+function bfsPath(start, target, blocked, width, height) {
+  const queue = [{ point: start, path: [] }];
+  const visited = new Set([gridKey(start)]);
+  const directions = ['up', 'down', 'left', 'right'];
+
+  while (queue.length) {
+    const { point, path } = queue.shift();
+    if (point.x === target.x && point.y === target.y) return path;
+
+    for (const dir of directions) {
+      const next = movePoint(point, dir);
+      const key = gridKey(next);
+      if (next.x < 0 || next.y < 0 || next.x >= width || next.y >= height) continue;
+      if (blocked.has(key) || visited.has(key)) continue;
+      visited.add(key);
+      queue.push({ point: next, path: [...path, dir] });
+    }
+  }
+  return null;
+}
+
+function countReachableCells(start, blocked, width, height) {
+  const queue = [start];
+  const visited = new Set([gridKey(start)]);
+  const directions = ['up', 'down', 'left', 'right'];
+  let count = 0;
+
+  while (queue.length) {
+    const point = queue.shift();
+    count += 1;
+    for (const dir of directions) {
+      const next = movePoint(point, dir);
+      const key = gridKey(next);
+      if (next.x < 0 || next.y < 0 || next.x >= width || next.y >= height) continue;
+      if (blocked.has(key) || visited.has(key)) continue;
+      visited.add(key);
+      queue.push(next);
+    }
+  }
+
+  return count;
+}
+
 function getSnakeAIDirection() {
   const head = snakeState.snake[0];
   const target = snakeState.food;
   const directions = ['up', 'down', 'left', 'right'];
-  const safeMoves = directions.filter((dir) => {
-    const next = { x: head.x, y: head.y };
-    if (dir === 'up') next.y -= 1;
-    if (dir === 'down') next.y += 1;
-    if (dir === 'left') next.x -= 1;
-    if (dir === 'right') next.x += 1;
-    return next.x >= 0 && next.y >= 0 && next.x < snakeState.width && next.y < snakeState.height && !snakeState.snake.some((segment) => segment.x === next.x && segment.y === next.y);
+  const opposite = { up: 'down', down: 'up', left: 'right', right: 'left' };
+  const currentDir = snakeState.direction;
+  const snakeBody = snakeState.snake;
+
+  const candidates = [];
+  for (const dir of directions) {
+    if (dir === opposite[currentDir]) continue;
+    const next = movePoint(head, dir);
+    const nextKey = gridKey(next);
+    if (next.x < 0 || next.y < 0 || next.x >= snakeState.width || next.y >= snakeState.height) continue;
+    if (isSnakeCell(next.x, next.y, snakeBody)) continue;
+
+    const willEat = next.x === target.x && next.y === target.y;
+    const blocked = buildBlockedSet(snakeBody, !willEat);
+    blocked.add(nextKey);
+
+    const pathToFood = bfsPath(next, target, blocked, snakeState.width, snakeState.height);
+    const reachable = countReachableCells(next, blocked, snakeState.width, snakeState.height);
+    const distance = pathToFood ? pathToFood.length : Infinity;
+    const directFood = willEat || (pathToFood && pathToFood.length > 0 && pathToFood[0] === dir);
+
+    candidates.push({ dir, pathToFood, reachable, distance, directFood, willEat });
+  }
+
+  if (!candidates.length) return snakeState.direction;
+
+  candidates.sort((a, b) => {
+    if (Boolean(a.pathToFood) !== Boolean(b.pathToFood)) return b.pathToFood ? 1 : -1;
+    if (a.reachable !== b.reachable) return b.reachable - a.reachable;
+    if (a.distance !== b.distance) return a.distance - b.distance;
+    if (a.willEat !== b.willEat) return a.willEat ? -1 : 1;
+    if (a.directFood !== b.directFood) return a.directFood ? -1 : 1;
+    if (a.dir === currentDir) return -1;
+    if (b.dir === currentDir) return 1;
+    return 0;
   });
-  if (!safeMoves.length) return snakeState.direction;
-  safeMoves.sort((a, b) => {
-    const aPos = { x: head.x, y: head.y };
-    const bPos = { x: head.x, y: head.y };
-    if (a === 'up') aPos.y -= 1;
-    if (a === 'down') aPos.y += 1;
-    if (a === 'left') aPos.x -= 1;
-    if (a === 'right') aPos.x += 1;
-    if (b === 'up') bPos.y -= 1;
-    if (b === 'down') bPos.y += 1;
-    if (b === 'left') bPos.x -= 1;
-    if (b === 'right') bPos.x += 1;
-    return (Math.abs(aPos.x - target.x) + Math.abs(aPos.y - target.y)) - (Math.abs(bPos.x - target.x) + Math.abs(bPos.y - target.y));
-  });
-  return safeMoves[0];
+
+  return candidates[0].dir;
 }
 
 function drawSnake(ctx, progress = 1) {
